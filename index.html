@@ -715,7 +715,7 @@ async function crearFormulario(config, preguntas, carpeta) {
     body: JSON.stringify({
       requests: [
         { updateFormInfo: { info: { description: descripcion }, updateMask: 'description' } },
-        { updateSettings: { settings: { quizSettings: { isQuiz: true } }, updateMask: 'quizSettings.isQuiz' } }
+        { updateSettings: { settings: { quizSettings: { isQuiz: true }, emailCollectionType: 'DO_NOT_COLLECT' }, updateMask: 'quizSettings.isQuiz,emailCollectionType' } }
       ]
     })
   });
