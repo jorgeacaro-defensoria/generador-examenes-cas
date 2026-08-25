@@ -226,15 +226,42 @@ async function procesarWord(archivo) {
     const xml = parser.parseFromString(xmlTexto, 'application/xml');
 
     const parrafos = Array.from(xml.getElementsByTagName('w:p'));
-    const REGEX_PREGUNTA = /^(\d+)\.\s*(.+?)\s*\((\d+(?:\.\d+)?)\s*puntos?\)\s*$/i;
-    const REGEX_ALTERNATIVA = /^([A-E])\)\s*(.*)$/;
+    // Acepta "1." o "1.-" seguido de texto, con el puntaje al final (opcional): "(2 puntos)"
+    const REGEX_PREGUNTA = /^(\d+)[.\-]+\s*(.+?)(?:\s*\((\d+(?:\.\d+)?)\s*puntos?\))?\s*$/i;
+    // Acepta "A)" o "A." como marca de alternativa
+    const REGEX_ALTERNATIVA = /^([A-E])[.\)]\s*(.*)$/;
+    const LETRAS_POSIBLES = ['A', 'B', 'C', 'D', 'E'];
 
     let seccionActual = 'GENERAL';
     const preguntas = [];
     let preguntaActual = null;
     let contadorCaso = 0;
+    let contadorAutoAlt = 0; // para alternativas de lista automática de Word (sin letra literal)
+    let reglaPuntos = { tipo: 'flat', valor: 1 }; // regla de puntaje vigente para la sección actual
+    let contadorPreguntaSeccion = 0; // para reglas posicionales tipo "las 5 primeras valen X"
+
+    function intentarExtraerReglaPuntos(texto) {
+      // "las 5 primeras valen 2 puntos, las otras 5 valen 1 punto" (u órdenes de palabras similares)
+      const posicional = texto.match(/(\d+)\s*primeras?[^\d]*?valen\s*(\d+(?:\.\d+)?)\s*puntos?[^]*?otras?[^]*?valen\s*(\d+(?:\.\d+)?)\s*puntos?/i);
+      if (posicional) {
+        return { tipo: 'posicional', cantidadPrimeras: Number(posicional[1]), valorPrimeras: Number(posicional[2]), valorResto: Number(posicional[3]) };
+      }
+      // "cada uno vale 1 punto" / "(1 punto cada una)" / genérico "N puntos" en una línea suelta
+      const plano = texto.match(/(\d+(?:\.\d+)?)\s*puntos?/i);
+      if (plano) return { tipo: 'flat', valor: Number(plano[1]) };
+      return null;
+    }
+
+    function calcularPuntajePregunta(puntosPropios) {
+      if (puntosPropios !== undefined && puntosPropios !== null && !isNaN(puntosPropios)) return puntosPropios;
+      if (reglaPuntos.tipo === 'posicional') {
+        return contadorPreguntaSeccion <= reglaPuntos.cantidadPrimeras ? reglaPuntos.valorPrimeras : reglaPuntos.valorResto;
+      }
+      return reglaPuntos.valor;
+    }
 
     parrafos.forEach(p => {
+      const esListaAuto = p.getElementsByTagName('w:numPr').length > 0;
       const runs = Array.from(p.getElementsByTagName('w:r'));
       let texto = '';
       let esDestacado = false;
@@ -258,9 +285,24 @@ async function procesarWord(archivo) {
       if (!texto) return;
 
       const textoMayus = texto.toUpperCase();
-      if (textoMayus.indexOf('CONOCIMIENTOS GENERALES') > -1) { seccionActual = 'GENERAL'; return; }
-      if (textoMayus.indexOf('ESPECIALIDAD') > -1 || textoMayus.indexOf('CONOCIMIENTOS ESPEC') > -1) { seccionActual = 'ESPECIFICA'; return; }
-      if (textoMayus.indexOf('CASOS PR') > -1) { seccionActual = 'CASO'; return; }
+      if (textoMayus.indexOf('CONOCIMIENTOS GENERALES') > -1) {
+        if (preguntaActual) { preguntas.push(preguntaActual); preguntaActual = null; }
+        seccionActual = 'GENERAL'; reglaPuntos = { tipo: 'flat', valor: 1 }; contadorPreguntaSeccion = 0;
+        const regla = intentarExtraerReglaPuntos(texto); if (regla) reglaPuntos = regla;
+        return;
+      }
+      if (textoMayus.indexOf('ESPECIALIDAD') > -1 || textoMayus.indexOf('CONOCIMIENTOS ESPEC') > -1) {
+        if (preguntaActual) { preguntas.push(preguntaActual); preguntaActual = null; }
+        seccionActual = 'ESPECIFICA'; reglaPuntos = { tipo: 'flat', valor: 1 }; contadorPreguntaSeccion = 0;
+        const regla = intentarExtraerReglaPuntos(texto); if (regla) reglaPuntos = regla;
+        return;
+      }
+      if (textoMayus.indexOf('CASOS PR') > -1) {
+        if (preguntaActual) { preguntas.push(preguntaActual); preguntaActual = null; }
+        seccionActual = 'CASO'; reglaPuntos = { tipo: 'flat', valor: 1 }; contadorPreguntaSeccion = 0;
+        const regla = intentarExtraerReglaPuntos(texto); if (regla) reglaPuntos = regla;
+        return;
+      }
 
       const matchPregunta = texto.match(REGEX_PREGUNTA);
       const matchAlternativa = texto.match(REGEX_ALTERNATIVA);
@@ -268,17 +310,50 @@ async function procesarWord(archivo) {
       if (matchPregunta) {
         if (preguntaActual) preguntas.push(preguntaActual);
         if (seccionActual === 'CASO') contadorCaso++;
+        contadorPreguntaSeccion++;
+        contadorAutoAlt = 0;
         preguntaActual = {
           tipo: seccionActual,
           pregunta: matchPregunta[2].trim(),
-          puntaje: Number(matchPregunta[3]),
+          puntaje: calcularPuntajePregunta(matchPregunta[3] !== undefined ? Number(matchPregunta[3]) : undefined),
           alternativas: {},
           casoId: seccionActual === 'CASO' ? ('CASO' + String(contadorCaso).padStart(2, '0')) : '',
           letraCorrecta: null
         };
-      } else if (matchAlternativa && preguntaActual) {
+        return;
+      }
+
+      // Si esta línea es, además, una declaración de puntaje suelta (sin pregunta activa
+      // todavía en esta sección), la usamos como regla y no la tratamos como enunciado.
+      if (!preguntaActual && !matchAlternativa && !esListaAuto && /puntos?/i.test(texto)) {
+        const regla = intentarExtraerReglaPuntos(texto);
+        if (regla) { reglaPuntos = regla; return; }
+      }
+
+      if (matchAlternativa && preguntaActual) {
         const letra = matchAlternativa[1].toUpperCase();
         preguntaActual.alternativas[letra] = matchAlternativa[2].trim();
+        if (esDestacado) preguntaActual.letraCorrecta = letra;
+      } else if (esListaAuto && (!preguntaActual || contadorAutoAlt >= LETRAS_POSIBLES.length) && seccionActual) {
+        // Pregunta sin número visible en el texto (el enunciado mismo forma parte de la lista
+        // automática de Word): la tomamos como el inicio de una pregunta nueva "implícita".
+        if (preguntaActual) preguntas.push(preguntaActual);
+        if (seccionActual === 'CASO') contadorCaso++;
+        contadorPreguntaSeccion++;
+        contadorAutoAlt = 0;
+        preguntaActual = {
+          tipo: seccionActual,
+          pregunta: texto,
+          puntaje: calcularPuntajePregunta(undefined),
+          alternativas: {},
+          casoId: seccionActual === 'CASO' ? ('CASO' + String(contadorCaso).padStart(2, '0')) : '',
+          letraCorrecta: null
+        };
+      } else if (esListaAuto && preguntaActual && contadorAutoAlt < LETRAS_POSIBLES.length) {
+        // Alternativa generada por una lista automática de Word (sin "A)" ni "A." literal)
+        const letra = LETRAS_POSIBLES[contadorAutoAlt];
+        contadorAutoAlt++;
+        preguntaActual.alternativas[letra] = texto;
         if (esDestacado) preguntaActual.letraCorrecta = letra;
       } else if (preguntaActual && Object.keys(preguntaActual.alternativas).length === 0) {
         preguntaActual.pregunta += ' ' + texto;
@@ -298,6 +373,7 @@ async function procesarWord(archivo) {
     }
 
     const advertencias = preguntas.filter(p => !p.letraCorrecta).map(p => p.id);
+    const puntajeTotalDetectado = preguntas.reduce((s, p) => s + p.puntaje, 0);
 
     bancoActual = preguntas;
     localStorage.setItem('bancoGeneradorCAS', JSON.stringify(bancoActual));
@@ -305,7 +381,9 @@ async function procesarWord(archivo) {
     let html = '<div class="mensaje ok">Se cargaron ' + preguntas.length + ' preguntas (' +
       preguntas.filter(x => x.tipo === 'GENERAL').length + ' generales, ' +
       preguntas.filter(x => x.tipo === 'ESPECIFICA').length + ' específicas, ' +
-      (new Set(preguntas.filter(x => x.tipo === 'CASO').map(x => x.casoId))).size + ' casos).</div>';
+      (new Set(preguntas.filter(x => x.tipo === 'CASO').map(x => x.casoId))).size + ' casos). ' +
+      'Suma de puntajes detectados: <b>' + puntajeTotalDetectado + '</b> — revísala contra el Word original antes de generar, ' +
+      'el puntaje por pregunta se infiere del texto y puede fallar en secciones con reglas poco comunes (puedes corregirlo por pregunta en el paso 3, modo manual).</div>';
     if (advertencias.length > 0) {
       html += '<div class="mensaje error">⚠️ No se detectó la respuesta correcta (negrita o resaltado) en las preguntas: ' + advertencias.join(', ') + '. Van a quedar excluidas del examen hasta que las corrijas en el Word y vuelvas a subirlo.</div>';
     }
@@ -344,13 +422,14 @@ function elegirModo(modo) {
 
 function dibujarTablaPreguntas() {
   const cont = document.getElementById('tablaPreguntas');
-  if (bancoActual.length === 0) {
-    cont.innerHTML = '<div style="padding:14px;color:#888;font-size:12.5px;">Aún no hay preguntas cargadas.</div>';
+  const activas = bancoActual.filter(p => p.letraCorrecta);
+  if (activas.length === 0) {
+    cont.innerHTML = '<div style="padding:14px;color:#888;font-size:12.5px;">Aún no hay preguntas con respuesta correcta detectada.</div>';
     actualizarContador();
     return;
   }
   let html = '';
-  bancoActual.forEach(p => {
+  activas.forEach(p => {
     const textoCorto = p.pregunta.length > 90 ? p.pregunta.substring(0, 90) + '…' : p.pregunta;
     html += '<div class="fila-pregunta">' +
       '<input type="checkbox" class="chk-pregunta" data-id="' + p.id + '" onchange="actualizarContador()">' +
@@ -362,6 +441,7 @@ function dibujarTablaPreguntas() {
   cont.innerHTML = html;
   actualizarContador();
 }
+
 
 function actualizarContador() {
   const marcadas = document.querySelectorAll('.chk-pregunta:checked').length;
@@ -686,6 +766,16 @@ async function crearFormulario(config, preguntas, carpeta) {
       body: JSON.stringify({ requests: bloque })
     });
   }
+
+  // El "title" de arriba es el título que ven los postulantes; el NOMBRE del archivo en
+  // Drive es un campo aparte (documentTitle) y no lo toca forms.create — hay que ponerlo
+  // explícitamente con la API de Drive para que la carpeta y el título de la pestaña
+  // muestren el nombre del proceso en vez de "Sin título".
+  await llamarGoogle('https://www.googleapis.com/drive/v3/files/' + formId, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: 'EVALUACIÓN ESCRITA - ' + config.nombreProceso })
+  });
 
   await moverArchivo(formId, carpeta.formularioId);
 
