@@ -437,6 +437,38 @@ function prepararAlternativas(preguntas, config) {
   });
 }
 
+// Google Forms solo acepta puntajes enteros por pregunta. En vez de redondear cada
+// pregunta por separado (lo que puede desviar el total, ej. dos veces 2.5 → 3 y 3 = 6
+// en vez de 5), usamos el "método del resto mayor": primero redondeamos todo hacia abajo,
+// y luego repartimos los puntos que faltan, de a uno, empezando por las preguntas con
+// mayor parte decimal — así el total final SIEMPRE coincide con la suma real elegida.
+function redondearPuntajesConservandoTotal(preguntas) {
+  const sumaOriginal = preguntas.reduce((s, p) => s + p.puntaje, 0);
+  const objetivo = Math.round(sumaOriginal);
+
+  const bases = preguntas.map(p => Math.floor(p.puntaje));
+  let faltante = objetivo - bases.reduce((a, b) => a + b, 0);
+
+  const ordenPorResto = preguntas
+    .map((p, i) => ({ i, resto: p.puntaje - Math.floor(p.puntaje) }))
+    .sort((a, b) => b.resto - a.resto);
+
+  const finales = bases.slice();
+  let k = 0;
+  while (faltante > 0 && k < ordenPorResto.length) {
+    finales[ordenPorResto[k].i] += 1;
+    faltante--;
+    k++;
+  }
+  while (faltante < 0 && ordenPorResto.length > 0) {
+    const idx = ordenPorResto[ordenPorResto.length - 1].i;
+    if (finales[idx] > 0) { finales[idx] -= 1; faltante++; }
+    ordenPorResto.pop();
+  }
+
+  return preguntas.map((p, i) => Object.assign({}, p, { puntajeEntero: finales[i] }));
+}
+
 /* ============================================================
  * LLAMADAS A GOOGLE DRIVE
  * ============================================================ */
@@ -636,7 +668,7 @@ async function crearFormulario(config, preguntas, carpeta) {
             question: {
               required: true,
               choiceQuestion: { type: 'RADIO', options: opciones.map(v => ({ value: v })) },
-              grading: { pointValue: Math.round(p.puntaje), correctAnswers: { answers: [{ value: valorCorrecto }] } }
+              grading: { pointValue: p.puntajeEntero !== undefined ? p.puntajeEntero : Math.round(p.puntaje), correctAnswers: { answers: [{ value: valorCorrecto }] } }
             }
           }
         },
@@ -704,6 +736,7 @@ async function generarExamen() {
     let preguntas = seleccionarPreguntas(config);
     if (preguntas.length === 0) throw new Error('No se seleccionó ninguna pregunta. Revisa las cantidades o tu selección manual.');
     preguntas = prepararAlternativas(preguntas, config);
+    preguntas = redondearPuntajesConservandoTotal(preguntas);
 
     mostrarProgreso('Creando carpetas en Drive…', 10);
     const carpeta = await crearEstructuraDrive(config.nombreProceso);
@@ -718,13 +751,13 @@ async function generarExamen() {
     const resultado = await crearFormulario(config, preguntas, carpeta);
 
     mostrarProgreso('Listo', 100);
-    const conDecimales = preguntas.filter(p => p.puntaje !== Math.round(p.puntaje));
+    const conDecimales = preguntas.filter(p => p.puntaje !== p.puntajeEntero);
     let avisoDecimales = '';
     if (conDecimales.length > 0) {
-      const puntajeTotalReal = preguntas.reduce((s, p) => s + Math.round(p.puntaje), 0);
-      avisoDecimales = '<div class="linea">⚠️ Google Forms no admite puntajes con decimales. Se redondearon ' +
-        conDecimales.length + ' preguntas (' + conDecimales.map(p => '#' + p.id + ': ' + p.puntaje + '→' + Math.round(p.puntaje)).join(', ') +
-        '). Puntaje total real del examen: <b>' + puntajeTotalReal + '</b> (revisa si coincide con lo que esperabas).</div>';
+      const puntajeTotalReal = preguntas.reduce((s, p) => s + p.puntajeEntero, 0);
+      avisoDecimales = '<div class="linea">⚠️ Google Forms no admite puntajes con decimales. Se ajustaron ' +
+        conDecimales.length + ' preguntas (' + conDecimales.map(p => '#' + p.id + ': ' + p.puntaje + '→' + p.puntajeEntero).join(', ') +
+        '), pero el total del examen se mantuvo en <b>' + puntajeTotalReal + '</b> puntos (igual a la suma real de lo que elegiste).</div>';
     }
     mensajeDiv.innerHTML =
       '<div class="mensaje ok resultado-final">' +
