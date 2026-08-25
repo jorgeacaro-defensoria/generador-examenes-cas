@@ -152,10 +152,15 @@
  * (Google Cloud Console → APIs y servicios → Credenciales)
  * ============================================================ */
 const CLIENT_ID = '140226245541-atpc48oencm46doatuoe4eu81f39lk14.apps.googleusercontent.com';
+// ID del formulario "plantilla" que ya tiene el encabezado/logo configurado manualmente
+// (Personalizar tema → Encabezado). Cada examen se crea copiando este formulario, así
+// que el encabezado se conserva automáticamente. Déjalo vacío ('') mientras no lo tengas
+// listo — la app sigue funcionando igual, solo sin el encabezado con logo arriba del todo.
+const PLANTILLA_FORM_ID = '1RKtsWnyVB20-_tsJRJw-MltfZsPnBu-mFUwtaBPaYo8';
 const SCOPES = [
   'https://www.googleapis.com/auth/forms.body',
   'https://www.googleapis.com/auth/presentations',
-  'https://www.googleapis.com/auth/drive.file'
+  'https://www.googleapis.com/auth/drive'
 ].join(' ');
 
 let accessToken = null;
@@ -693,12 +698,32 @@ async function generarImagenesPreguntas(preguntas, carpeta, actualizarProgreso) 
  * ============================================================ */
 
 async function crearFormulario(config, preguntas, carpeta) {
-  const creado = await llamarGoogle('https://forms.googleapis.com/v1/forms', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ info: { title: 'EVALUACIÓN ESCRITA - ' + config.nombreProceso } })
-  });
-  const formId = creado.formId;
+  let formId;
+
+  if (PLANTILLA_FORM_ID) {
+    // Copiamos el formulario plantilla (que ya tiene el encabezado/tema configurado
+    // manualmente) en vez de crear uno en blanco — Drive conserva el tema al copiar.
+    const copia = await llamarGoogle('https://www.googleapis.com/drive/v3/files/' + PLANTILLA_FORM_ID + '/copy', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'EVALUACIÓN ESCRITA - ' + config.nombreProceso })
+    });
+    formId = copia.id;
+    // El título "visible a los postulantes" (Info.title) no se copia automáticamente
+    // con el mismo criterio que el nombre del archivo, así que lo fijamos explícitamente.
+    await llamarGoogle('https://forms.googleapis.com/v1/forms/' + formId + ':batchUpdate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ requests: [{ updateFormInfo: { info: { title: 'EVALUACIÓN ESCRITA - ' + config.nombreProceso }, updateMask: 'title' } }] })
+    });
+  } else {
+    const creado = await llamarGoogle('https://forms.googleapis.com/v1/forms', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ info: { title: 'EVALUACIÓN ESCRITA - ' + config.nombreProceso } })
+    });
+    formId = creado.formId;
+  }
 
   const descripcion =
     'Proceso: ' + config.nombreProceso + '\n' +
@@ -724,13 +749,16 @@ async function crearFormulario(config, preguntas, carpeta) {
   let idx = 0;
 
   // Logo institucional al inicio del formulario (justo debajo del título/descripción).
-  // Alojado en el mismo sitio de GitHub Pages para no depender de subirlo a Drive cada vez.
-  requests.push({
-    createItem: {
-      item: { title: '', imageItem: { image: { sourceUri: 'https://jorgeacaro-defensoria.github.io/generador-examenes-cas/logo.png' } } },
-      location: { index: idx++ }
-    }
-  });
+  // Solo se agrega si NO hay plantilla configurada: la plantilla ya trae el logo como
+  // encabezado real (arriba del título), así que agregarlo también aquí lo duplicaría.
+  if (!PLANTILLA_FORM_ID) {
+    requests.push({
+      createItem: {
+        item: { title: '', imageItem: { image: { sourceUri: 'https://jorgeacaro-defensoria.github.io/generador-examenes-cas/logo.png' } } },
+        location: { index: idx++ }
+      }
+    });
+  }
 
   requests.push({ createItem: { item: { title: 'APELLIDOS Y NOMBRES', questionItem: { question: { required: true, textQuestion: {} } } }, location: { index: idx++ } } });
   requests.push({ createItem: { item: { title: 'DNI', questionItem: { question: { required: true, textQuestion: {} } } }, location: { index: idx++ } } });
