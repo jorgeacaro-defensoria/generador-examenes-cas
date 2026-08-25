@@ -716,6 +716,19 @@ async function crearFormulario(config, preguntas, carpeta) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ requests: [{ updateFormInfo: { info: { title: 'EVALUACIÓN ESCRITA - ' + config.nombreProceso }, updateMask: 'title' } }] })
     });
+
+    // La plantilla (como todo formulario nuevo de Google) trae de fábrica una pregunta
+    // en blanco ("Pregunta sin título"). La borramos antes de agregar las preguntas reales
+    // para que no quede colgada al final del examen.
+    const formInfo = await llamarGoogle('https://forms.googleapis.com/v1/forms/' + formId);
+    if (formInfo.items && formInfo.items.length > 0) {
+      const requestsBorrado = formInfo.items.map(() => ({ deleteItem: { location: { index: 0 } } }));
+      await llamarGoogle('https://forms.googleapis.com/v1/forms/' + formId + ':batchUpdate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ requests: requestsBorrado })
+      });
+    }
   } else {
     const creado = await llamarGoogle('https://forms.googleapis.com/v1/forms', {
       method: 'POST',
