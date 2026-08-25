@@ -763,10 +763,19 @@ async function crearFormulario(config, preguntas, carpeta) {
   requests.push({ createItem: { item: { title: 'APELLIDOS Y NOMBRES', questionItem: { question: { required: true, textQuestion: {} } } }, location: { index: idx++ } } });
   requests.push({ createItem: { item: { title: 'DNI', questionItem: { question: { required: true, textQuestion: {} } } }, location: { index: idx++ } } });
 
+  const ETIQUETA_SECCION = { GENERAL: 'PREGUNTAS GENERALES', ESPECIFICA: 'PREGUNTAS ESPECÍFICAS', CASO: 'CASOS PRÁCTICOS' };
+  let tipoAnterior = null;
   let casoIdAnterior = null;
+  let numeroCaso = 0;
   preguntas.forEach(p => {
+    if (p.tipo !== tipoAnterior) {
+      requests.push({ createItem: { item: { title: ETIQUETA_SECCION[p.tipo] || p.tipo, pageBreakItem: {} }, location: { index: idx++ } } });
+      tipoAnterior = p.tipo;
+      casoIdAnterior = null; // fuerza a que el primer caso de la sección también muestre su propio encabezado "CASO N"
+    }
     if (p.tipo === 'CASO' && p.casoId !== casoIdAnterior) {
-      requests.push({ createItem: { item: { title: 'CASO PRÁCTICO', pageBreakItem: {} }, location: { index: idx++ } } });
+      numeroCaso++;
+      requests.push({ createItem: { item: { title: 'CASO ' + numeroCaso, pageBreakItem: {} }, location: { index: idx++ } } });
       casoIdAnterior = p.casoId;
     }
     if (p.imagenUrl) {
