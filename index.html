@@ -636,7 +636,7 @@ async function crearFormulario(config, preguntas, carpeta) {
             question: {
               required: true,
               choiceQuestion: { type: 'RADIO', options: opciones.map(v => ({ value: v })) },
-              grading: { pointValue: p.puntaje, correctAnswers: { answers: [{ value: valorCorrecto }] } }
+              grading: { pointValue: Math.round(p.puntaje), correctAnswers: { answers: [{ value: valorCorrecto }] } }
             }
           }
         },
@@ -718,9 +718,18 @@ async function generarExamen() {
     const resultado = await crearFormulario(config, preguntas, carpeta);
 
     mostrarProgreso('Listo', 100);
+    const conDecimales = preguntas.filter(p => p.puntaje !== Math.round(p.puntaje));
+    let avisoDecimales = '';
+    if (conDecimales.length > 0) {
+      const puntajeTotalReal = preguntas.reduce((s, p) => s + Math.round(p.puntaje), 0);
+      avisoDecimales = '<div class="linea">⚠️ Google Forms no admite puntajes con decimales. Se redondearon ' +
+        conDecimales.length + ' preguntas (' + conDecimales.map(p => '#' + p.id + ': ' + p.puntaje + '→' + Math.round(p.puntaje)).join(', ') +
+        '). Puntaje total real del examen: <b>' + puntajeTotalReal + '</b> (revisa si coincide con lo que esperabas).</div>';
+    }
     mensajeDiv.innerHTML =
       '<div class="mensaje ok resultado-final">' +
       '<div class="linea"><b>Examen generado</b> (' + preguntas.length + ' preguntas)</div>' +
+      avisoDecimales +
       '<div class="linea">📝 <a href="' + resultado.urlForm + '" target="_blank">Abrir formulario para postulantes</a></div>' +
       '<div class="linea">✏️ <a href="' + resultado.urlEdit + '" target="_blank">Abrir formulario en modo edición</a></div>' +
       '</div>';
