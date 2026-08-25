@@ -722,6 +722,16 @@ async function crearFormulario(config, preguntas, carpeta) {
 
   const requests = [];
   let idx = 0;
+
+  // Logo institucional al inicio del formulario (justo debajo del título/descripción).
+  // Alojado en el mismo sitio de GitHub Pages para no depender de subirlo a Drive cada vez.
+  requests.push({
+    createItem: {
+      item: { title: '', imageItem: { image: { sourceUri: 'https://jorgeacaro-defensoria.github.io/generador-examenes-cas/logo.png' } } },
+      location: { index: idx++ }
+    }
+  });
+
   requests.push({ createItem: { item: { title: 'APELLIDOS Y NOMBRES', questionItem: { question: { required: true, textQuestion: {} } } }, location: { index: idx++ } } });
   requests.push({ createItem: { item: { title: 'DNI', questionItem: { question: { required: true, textQuestion: {} } } }, location: { index: idx++ } } });
 
