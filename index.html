@@ -1,1 +1,735 @@
-<!DOCTYPE html> <html><body><h1>Funciona</h1><p>Página de prueba del Generador de Exámenes CAS.</p></body></html>
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Generador de Exámenes CAS</title>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: 'Google Sans', Roboto, Arial, sans-serif; margin: 0; padding: 24px; color: #202124; background: #f8f9fa; }
+  .contenedor { max-width: 880px; margin: 0 auto; }
+  h1 { font-size: 20px; margin: 0 0 4px 0; }
+  p.subtitulo { color: #5f6368; margin: 0 0 20px 0; font-size: 13px; }
+
+  .tarjeta { background: #fff; border: 1px solid #dadce0; border-radius: 10px; padding: 18px 20px; margin-bottom: 16px; }
+  .tarjeta h2 { font-size: 15px; margin: 0 0 10px 0; display: flex; align-items: center; gap: 8px; }
+  .numero { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; background: #1a73e8; color: #fff; font-size: 12px; font-weight: bold; flex-shrink: 0; }
+
+  label { font-size: 12.5px; color: #3c4043; font-weight: 500; display: block; margin: 8px 0 3px 0; }
+  input[type=text], input[type=number] { width: 100%; padding: 7px 9px; border: 1px solid #dadce0; border-radius: 6px; font-size: 13px; }
+  .fila { display: flex; gap: 14px; flex-wrap: wrap; }
+  .fila > div { flex: 1; min-width: 140px; }
+
+  .boton { display: inline-flex; align-items: center; gap: 6px; background: #1a73e8; color: #fff; border: none; border-radius: 20px; padding: 9px 20px; font-size: 13.5px; font-weight: 500; cursor: pointer; }
+  .boton:hover { background: #1765cc; }
+  .boton:disabled { background: #c8c8c8; cursor: not-allowed; }
+  .boton.grande { padding: 12px 26px; font-size: 15px; }
+
+  .zona-subida { border: 2px dashed #c2c2c2; border-radius: 10px; padding: 20px; text-align: center; background: #fafbfc; }
+  .mensaje { margin-top: 10px; padding: 10px 12px; border-radius: 8px; font-size: 12.5px; line-height: 1.5; }
+  .mensaje.ok { background: #e6f4ea; color: #137333; border: 1px solid #ceead6; }
+  .mensaje.error { background: #fce8e6; color: #c5221f; border: 1px solid #fad2cf; }
+  .mensaje.info { background: #e8f0fe; color: #1967d2; border: 1px solid #d2e3fc; }
+
+  .estado-banco { font-size: 12.5px; color: #3c4043; margin-top: 8px; }
+  .estado-banco b { color: #1a73e8; }
+
+  .modo-selector { display: flex; gap: 10px; margin: 10px 0; }
+  .modo-opcion { flex: 1; border: 1.5px solid #dadce0; border-radius: 8px; padding: 10px 12px; cursor: pointer; font-size: 13px; text-align: center; }
+  .modo-opcion.activo { border-color: #1a73e8; background: #e8f0fe; color: #1a73e8; font-weight: 600; }
+
+  .checkbox-linea { display: flex; align-items: center; gap: 8px; margin: 10px 0; }
+  .checkbox-linea label { margin: 0; font-weight: 400; }
+
+  #bloqueAleatoria, #bloqueManual, #zonaPrincipal { display: none; }
+  #bloqueAleatoria.visible, #bloqueManual.visible, #zonaPrincipal.visible { display: block; }
+
+  .tabla-preguntas { max-height: 260px; overflow-y: auto; border: 1px solid #dadce0; border-radius: 8px; margin-top: 10px; }
+  .fila-pregunta { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-bottom: 1px solid #f1f1f1; font-size: 12.5px; }
+  .fila-pregunta:last-child { border-bottom: none; }
+  .fila-pregunta .badge { font-size: 10px; padding: 2px 6px; border-radius: 10px; background: #eee; color: #555; flex-shrink: 0; width: 62px; text-align: center; }
+  .fila-pregunta .texto { flex: 1; }
+  .fila-pregunta input[type=number] { width: 55px; padding: 3px 5px; font-size: 12px; }
+  .contador-seleccion { font-size: 12px; color: #5f6368; margin-top: 6px; }
+
+  .resultado-final a { color: #1a73e8; word-break: break-all; }
+  .resultado-final .linea { margin: 6px 0; }
+
+  .barra-progreso-cont { background: #eee; border-radius: 8px; height: 8px; overflow: hidden; margin-top: 8px; }
+  .barra-progreso { background: #1a73e8; height: 100%; width: 0%; transition: width 0.3s; }
+  .texto-progreso { font-size: 12px; color: #5f6368; margin-top: 4px; }
+
+  .spinner { display: inline-block; width: 13px; height: 13px; border: 2px solid #ffffff88; border-top-color: #fff; border-radius: 50%; animation: girar 0.7s linear infinite; }
+  @keyframes girar { to { transform: rotate(360deg); } }
+
+  .zona-login { text-align: center; padding: 60px 20px; }
+  .zona-login .boton { padding: 12px 28px; font-size: 15px; }
+  .usuario-activo { font-size: 12.5px; color: #3c4043; text-align: right; margin-bottom: 10px; }
+</style>
+</head>
+<body>
+<div class="contenedor">
+
+  <h1>Generador de Exámenes CAS</h1>
+  <p class="subtitulo">Sube el banco de preguntas, ajusta los datos del proceso y genera el examen — funciona desde cualquier navegador.</p>
+
+  <div id="zonaLogin" class="tarjeta zona-login">
+    <p style="margin-bottom:16px;color:#5f6368;font-size:13.5px;">Inicia sesión con tu cuenta de Google institucional para continuar.</p>
+    <button class="boton" onclick="iniciarSesion()">Iniciar sesión con Google</button>
+    <div id="mensajeLogin"></div>
+  </div>
+
+  <div id="zonaPrincipal">
+    <div class="usuario-activo" id="usuarioActivo"></div>
+
+    <div class="tarjeta">
+      <h2><span class="numero">1</span> Subir el banco de preguntas (Word)</h2>
+      <div class="zona-subida">
+        <div>Selecciona el archivo Word (.docx) con las preguntas del examen</div>
+        <input type="file" id="archivoWord" accept=".docx">
+      </div>
+      <div id="mensajeSubida"></div>
+      <div class="estado-banco" id="estadoBanco">Todavía no hay preguntas cargadas.</div>
+    </div>
+
+    <div class="tarjeta">
+      <h2><span class="numero">2</span> Datos del proceso</h2>
+      <div class="fila">
+        <div><label>Nombre del proceso</label><input type="text" id="nombreProceso" placeholder="CAS N.° 000-2026-DP"></div>
+        <div><label>Cargo</label><input type="text" id="cargo" placeholder="Especialista..."></div>
+      </div>
+      <div class="fila">
+        <div><label>Duración (minutos)</label><input type="number" id="duracionMinutos" value="30"></div>
+        <div><label>Puntaje máximo</label><input type="number" id="puntajeMaximo" value="20"></div>
+        <div><label>Puntaje mínimo para APTO</label><input type="number" id="puntajeMinimoApto" value="15"></div>
+      </div>
+      <div class="checkbox-linea">
+        <input type="checkbox" id="generarImagenes" checked>
+        <label for="generarImagenes">Mostrar las preguntas como imagen (recomendado, reduce el riesgo de copia)</label>
+      </div>
+      <div class="checkbox-linea">
+        <input type="checkbox" id="aleatorizarAlternativas">
+        <label for="aleatorizarAlternativas">Mezclar el orden de las alternativas (se hace una sola vez; todos los postulantes reciben el mismo examen)</label>
+      </div>
+    </div>
+
+    <div class="tarjeta">
+      <h2><span class="numero">3</span> ¿Cómo eliges las preguntas del examen?</h2>
+      <div class="modo-selector">
+        <div class="modo-opcion activo" id="opcionAleatoria" onclick="elegirModo('ALEATORIA')">🎲 Elegir al azar<br><span style="font-weight:400;font-size:11px;">indico cuántas de cada tipo</span></div>
+        <div class="modo-opcion" id="opcionManual" onclick="elegirModo('MANUAL')">✋ Elegir yo mismo<br><span style="font-weight:400;font-size:11px;">marco las preguntas y su puntaje</span></div>
+      </div>
+      <div id="bloqueAleatoria" class="visible">
+        <div class="fila">
+          <div><label>Cantidad de preguntas generales</label><input type="number" id="cantidadGenerales" value="5"></div>
+          <div><label>Cantidad de preguntas específicas</label><input type="number" id="cantidadEspecificas" value="10"></div>
+          <div><label>Cantidad de casos prácticos</label><input type="number" id="cantidadCasos" value="5"></div>
+        </div>
+      </div>
+      <div id="bloqueManual">
+        <div class="mensaje info">Marca las preguntas que quieres incluir. Si dejas el puntaje vacío, se usa el que ya tiene en el banco.</div>
+        <div class="tabla-preguntas" id="tablaPreguntas"></div>
+        <div class="contador-seleccion" id="contadorSeleccion">0 preguntas seleccionadas</div>
+      </div>
+    </div>
+
+    <div class="tarjeta">
+      <h2><span class="numero">4</span> Generar el examen</h2>
+      <button class="boton grande" id="btnGenerar" onclick="generarExamen()">Generar examen</button>
+      <div class="barra-progreso-cont" id="contBarra" style="display:none;"><div class="barra-progreso" id="barraProgreso"></div></div>
+      <div class="texto-progreso" id="textoProgreso"></div>
+      <div id="mensajeGeneracion"></div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+/* ============================================================
+ * CONFIGURACIÓN — reemplaza esto con tu propio ID de cliente OAuth
+ * (Google Cloud Console → APIs y servicios → Credenciales)
+ * ============================================================ */
+const CLIENT_ID = '140226245541-atpc48oencm46doatuoe4eu81f39lk14.apps.googleusercontent.com';
+const SCOPES = [
+  'https://www.googleapis.com/auth/forms.body',
+  'https://www.googleapis.com/auth/presentations',
+  'https://www.googleapis.com/auth/drive.file'
+].join(' ');
+
+let accessToken = null;
+let tokenClient = null;
+let bancoActual = [];
+let modoActual = 'ALEATORIA';
+
+/* ============================================================
+ * AUTENTICACIÓN
+ * ============================================================ */
+window.onload = function() {
+  tokenClient = google.accounts.oauth2.initTokenClient({
+    client_id: CLIENT_ID,
+    scope: SCOPES,
+    callback: (respuesta) => {
+      if (respuesta.error) {
+        document.getElementById('mensajeLogin').innerHTML = '<div class="mensaje error">No se pudo iniciar sesión: ' + respuesta.error + '</div>';
+        return;
+      }
+      accessToken = respuesta.access_token;
+      onSesionIniciada();
+    }
+  });
+  const bancoGuardado = localStorage.getItem('bancoGeneradorCAS');
+  if (bancoGuardado) {
+    try { bancoActual = JSON.parse(bancoGuardado); } catch (e) { bancoActual = []; }
+  }
+};
+
+function iniciarSesion() {
+  tokenClient.requestAccessToken();
+}
+
+function onSesionIniciada() {
+  document.getElementById('zonaLogin').style.display = 'none';
+  document.getElementById('zonaPrincipal').classList.add('visible');
+  obtenerCorreoUsuario();
+  actualizarEstadoBanco();
+  dibujarTablaPreguntas();
+}
+
+async function obtenerCorreoUsuario() {
+  try {
+    const r = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', { headers: { Authorization: 'Bearer ' + accessToken } });
+    const datos = await r.json();
+    document.getElementById('usuarioActivo').innerText = 'Sesión: ' + (datos.email || '');
+  } catch (e) { /* no crítico */ }
+}
+
+/* ============================================================
+ * LECTOR DE ARCHIVO WORD (.docx) — todo en el navegador,
+ * usando JSZip para leer el XML interno y detectar negrita/resaltado
+ * ============================================================ */
+
+document.getElementById('archivoWord').addEventListener('change', function(e) {
+  const archivo = e.target.files[0];
+  if (!archivo) return;
+  procesarWord(archivo);
+});
+
+async function procesarWord(archivo) {
+  const mensajeDiv = document.getElementById('mensajeSubida');
+  mensajeDiv.innerHTML = '<div class="mensaje info">Leyendo el archivo…</div>';
+  try {
+    const zip = await JSZip.loadAsync(archivo);
+    const xmlTexto = await zip.file('word/document.xml').async('text');
+    const parser = new DOMParser();
+    const xml = parser.parseFromString(xmlTexto, 'application/xml');
+
+    const parrafos = Array.from(xml.getElementsByTagName('w:p'));
+    const REGEX_PREGUNTA = /^(\d+)\.\s*(.+?)\s*\((\d+(?:\.\d+)?)\s*puntos?\)\s*$/i;
+    const REGEX_ALTERNATIVA = /^([A-E])\)\s*(.*)$/;
+
+    let seccionActual = 'GENERAL';
+    const preguntas = [];
+    let preguntaActual = null;
+    let contadorCaso = 0;
+
+    parrafos.forEach(p => {
+      const runs = Array.from(p.getElementsByTagName('w:r'));
+      let texto = '';
+      let esDestacado = false;
+      runs.forEach(run => {
+        const tNodos = Array.from(run.getElementsByTagName('w:t'));
+        const textoRun = tNodos.map(t => t.textContent).join('');
+        texto += textoRun;
+        if (textoRun.trim() !== '') {
+          const rPr = run.getElementsByTagName('w:rPr')[0];
+          if (rPr) {
+            const negrita = rPr.getElementsByTagName('w:b').length > 0 &&
+              rPr.getElementsByTagName('w:b')[0].getAttribute('w:val') !== '0' &&
+              rPr.getElementsByTagName('w:b')[0].getAttribute('w:val') !== 'false';
+            const resaltado = rPr.getElementsByTagName('w:highlight').length > 0 &&
+              rPr.getElementsByTagName('w:highlight')[0].getAttribute('w:val') !== 'none';
+            if (negrita || resaltado) esDestacado = true;
+          }
+        }
+      });
+      texto = texto.trim();
+      if (!texto) return;
+
+      const textoMayus = texto.toUpperCase();
+      if (textoMayus.indexOf('CONOCIMIENTOS GENERALES') > -1) { seccionActual = 'GENERAL'; return; }
+      if (textoMayus.indexOf('ESPECIALIDAD') > -1 || textoMayus.indexOf('CONOCIMIENTOS ESPEC') > -1) { seccionActual = 'ESPECIFICA'; return; }
+      if (textoMayus.indexOf('CASOS PR') > -1) { seccionActual = 'CASO'; return; }
+
+      const matchPregunta = texto.match(REGEX_PREGUNTA);
+      const matchAlternativa = texto.match(REGEX_ALTERNATIVA);
+
+      if (matchPregunta) {
+        if (preguntaActual) preguntas.push(preguntaActual);
+        if (seccionActual === 'CASO') contadorCaso++;
+        preguntaActual = {
+          tipo: seccionActual,
+          pregunta: matchPregunta[2].trim(),
+          puntaje: Number(matchPregunta[3]),
+          alternativas: {},
+          casoId: seccionActual === 'CASO' ? ('CASO' + String(contadorCaso).padStart(2, '0')) : '',
+          letraCorrecta: null
+        };
+      } else if (matchAlternativa && preguntaActual) {
+        const letra = matchAlternativa[1].toUpperCase();
+        preguntaActual.alternativas[letra] = matchAlternativa[2].trim();
+        if (esDestacado) preguntaActual.letraCorrecta = letra;
+      } else if (preguntaActual && Object.keys(preguntaActual.alternativas).length === 0) {
+        preguntaActual.pregunta += ' ' + texto;
+      }
+    });
+    if (preguntaActual) preguntas.push(preguntaActual);
+
+    preguntas.forEach((p, i) => {
+      p.id = String(i + 1).padStart(3, '0');
+      p.nivel = p.tipo === 'GENERAL' ? 'Básico' : (p.tipo === 'ESPECIFICA' ? 'Intermedio' : 'Experto');
+      p.tipoAlternativas = Object.keys(p.alternativas).length <= 2 ? 'VF' : '5_OPCIONES';
+    });
+
+    if (preguntas.length === 0) {
+      mensajeDiv.innerHTML = '<div class="mensaje error">No se detectó ninguna pregunta con el formato esperado ("N. Enunciado (X punto(s))" seguido de A) a E)). Revisa el formato del Word.</div>';
+      return;
+    }
+
+    const advertencias = preguntas.filter(p => !p.letraCorrecta).map(p => p.id);
+
+    bancoActual = preguntas;
+    localStorage.setItem('bancoGeneradorCAS', JSON.stringify(bancoActual));
+
+    let html = '<div class="mensaje ok">Se cargaron ' + preguntas.length + ' preguntas (' +
+      preguntas.filter(x => x.tipo === 'GENERAL').length + ' generales, ' +
+      preguntas.filter(x => x.tipo === 'ESPECIFICA').length + ' específicas, ' +
+      (new Set(preguntas.filter(x => x.tipo === 'CASO').map(x => x.casoId))).size + ' casos).</div>';
+    if (advertencias.length > 0) {
+      html += '<div class="mensaje error">⚠️ No se detectó la respuesta correcta (negrita o resaltado) en las preguntas: ' + advertencias.join(', ') + '. Van a quedar excluidas del examen hasta que las corrijas en el Word y vuelvas a subirlo.</div>';
+    }
+    mensajeDiv.innerHTML = html;
+
+    actualizarEstadoBanco();
+    dibujarTablaPreguntas();
+  } catch (err) {
+    mensajeDiv.innerHTML = '<div class="mensaje error">No se pudo leer el archivo: ' + err.message + '. Asegúrate de que sea un .docx válido (no .doc antiguo).</div>';
+  }
+}
+
+function actualizarEstadoBanco() {
+  const el = document.getElementById('estadoBanco');
+  if (bancoActual.length === 0) {
+    el.innerHTML = 'Todavía no hay preguntas cargadas. Sube un Word para empezar.';
+  } else {
+    const generales = bancoActual.filter(p => p.tipo === 'GENERAL').length;
+    const especificas = bancoActual.filter(p => p.tipo === 'ESPECIFICA').length;
+    const casos = (new Set(bancoActual.filter(p => p.tipo === 'CASO').map(p => p.casoId))).size;
+    el.innerHTML = 'Banco actual: <b>' + bancoActual.length + '</b> preguntas (<b>' + generales + '</b> generales, <b>' + especificas + '</b> específicas, <b>' + casos + '</b> casos).';
+  }
+}
+
+/* ============================================================
+ * SELECCIÓN DE PREGUNTAS (UI)
+ * ============================================================ */
+
+function elegirModo(modo) {
+  modoActual = modo;
+  document.getElementById('opcionAleatoria').classList.toggle('activo', modo === 'ALEATORIA');
+  document.getElementById('opcionManual').classList.toggle('activo', modo === 'MANUAL');
+  document.getElementById('bloqueAleatoria').classList.toggle('visible', modo === 'ALEATORIA');
+  document.getElementById('bloqueManual').classList.toggle('visible', modo === 'MANUAL');
+}
+
+function dibujarTablaPreguntas() {
+  const cont = document.getElementById('tablaPreguntas');
+  if (bancoActual.length === 0) {
+    cont.innerHTML = '<div style="padding:14px;color:#888;font-size:12.5px;">Aún no hay preguntas cargadas.</div>';
+    actualizarContador();
+    return;
+  }
+  let html = '';
+  bancoActual.forEach(p => {
+    const textoCorto = p.pregunta.length > 90 ? p.pregunta.substring(0, 90) + '…' : p.pregunta;
+    html += '<div class="fila-pregunta">' +
+      '<input type="checkbox" class="chk-pregunta" data-id="' + p.id + '" onchange="actualizarContador()">' +
+      '<span class="badge">' + p.tipo + '</span>' +
+      '<span class="texto" title="' + p.pregunta.replace(/"/g, '&quot;') + '">#' + p.id + ' — ' + textoCorto + '</span>' +
+      '<input type="number" class="pts-pregunta" data-id="' + p.id + '" placeholder="' + p.puntaje + '" step="0.5">' +
+      '</div>';
+  });
+  cont.innerHTML = html;
+  actualizarContador();
+}
+
+function actualizarContador() {
+  const marcadas = document.querySelectorAll('.chk-pregunta:checked').length;
+  document.getElementById('contadorSeleccion').innerText = marcadas + ' preguntas seleccionadas';
+}
+
+function mezclarArray(arr) {
+  const copia = arr.slice();
+  for (let i = copia.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [copia[i], copia[j]] = [copia[j], copia[i]];
+  }
+  return copia;
+}
+
+function seleccionarPreguntas(config) {
+  const activas = bancoActual.filter(p => p.letraCorrecta);
+
+  if (config.modoSeleccion === 'MANUAL') {
+    const seleccion = [];
+    document.querySelectorAll('.chk-pregunta:checked').forEach(chk => {
+      const id = chk.getAttribute('data-id');
+      const original = activas.find(p => p.id === id);
+      if (!original) return;
+      const inputPts = document.querySelector('.pts-pregunta[data-id="' + id + '"]');
+      const puntajeTexto = inputPts.value.trim();
+      const copia = Object.assign({}, original);
+      if (puntajeTexto !== '') copia.puntaje = Number(puntajeTexto);
+      seleccion.push(copia);
+    });
+    seleccion.forEach((p, i) => { p.numero = i + 1; });
+    return seleccion;
+  }
+
+  const generales = mezclarArray(activas.filter(p => p.tipo === 'GENERAL')).slice(0, config.cantidadGenerales);
+  const especificas = mezclarArray(activas.filter(p => p.tipo === 'ESPECIFICA')).slice(0, config.cantidadEspecificas);
+
+  const casos = activas.filter(p => p.tipo === 'CASO');
+  const gruposCaso = {};
+  casos.forEach(p => { if (!gruposCaso[p.casoId]) gruposCaso[p.casoId] = []; gruposCaso[p.casoId].push(p); });
+  const idsCasoMezclados = mezclarArray(Object.keys(gruposCaso));
+  let idsCasoUsados = [];
+  let cuenta = 0;
+  for (const casoId of idsCasoMezclados) {
+    if (cuenta >= config.cantidadCasos) break;
+    idsCasoUsados.push(casoId);
+    cuenta += gruposCaso[casoId].length;
+  }
+  const preguntasCasos = [];
+  idsCasoUsados.forEach(casoId => gruposCaso[casoId].forEach(p => preguntasCasos.push(p)));
+
+  const todas = generales.concat(especificas).concat(preguntasCasos);
+  todas.forEach((p, i) => { p.numero = i + 1; });
+  return todas;
+}
+
+function prepararAlternativas(preguntas, config) {
+  return preguntas.map(p => {
+    const letras = p.tipoAlternativas === 'VF' ? ['A', 'B'] : ['A', 'B', 'C', 'D', 'E'];
+    let alternativasFinal = {};
+    letras.forEach(l => { alternativasFinal[l] = p.alternativas[l]; });
+    let correctaFinal = p.letraCorrecta;
+
+    if (config.aleatorizarAlternativas && p.tipoAlternativas !== 'VF') {
+      const textoCorrectoOriginal = p.alternativas[p.letraCorrecta];
+      const letrasMezcladas = mezclarArray(letras);
+      const nuevas = {};
+      letrasMezcladas.forEach((letraOrigen, idx) => { nuevas[letras[idx]] = p.alternativas[letraOrigen]; });
+      alternativasFinal = nuevas;
+      correctaFinal = letras.find(letra => nuevas[letra] === textoCorrectoOriginal);
+    }
+    return Object.assign({}, p, { alternativasFinal, respuestaCorrectaFinal: correctaFinal, letrasUsadas: letras });
+  });
+}
+
+/* ============================================================
+ * LLAMADAS A GOOGLE DRIVE
+ * ============================================================ */
+
+async function llamarGoogle(url, opciones) {
+  opciones = opciones || {};
+  opciones.headers = Object.assign({ Authorization: 'Bearer ' + accessToken }, opciones.headers || {});
+  const r = await fetch(url, opciones);
+  if (!r.ok) {
+    const texto = await r.text();
+    throw new Error('Error ' + r.status + ' en ' + url + ': ' + texto.substring(0, 300));
+  }
+  if (r.status === 204) return null;
+  return r.json();
+}
+
+async function buscarOCrearCarpeta(nombre, idPadre) {
+  const q = encodeURIComponent(`mimeType='application/vnd.google-apps.folder' and name='${nombre}' and trashed=false and '${idPadre}' in parents`);
+  const resultado = await llamarGoogle('https://www.googleapis.com/drive/v3/files?q=' + q + '&fields=files(id,name)');
+  if (resultado.files && resultado.files.length > 0) return resultado.files[0].id;
+  const creado = await llamarGoogle('https://www.googleapis.com/drive/v3/files', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: nombre, mimeType: 'application/vnd.google-apps.folder', parents: [idPadre] })
+  });
+  return creado.id;
+}
+
+async function crearEstructuraDrive(nombreProceso) {
+  const raizId = await buscarOCrearCarpeta('EVALUACIONES CAS', 'root');
+  const nombreCarpetaProceso = nombreProceso + ' - ' + Date.now();
+  const procesoResp = await llamarGoogle('https://www.googleapis.com/drive/v3/files', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: nombreCarpetaProceso, mimeType: 'application/vnd.google-apps.folder', parents: [raizId] })
+  });
+  const procesoId = procesoResp.id;
+  const imagenesPreguntasId = await buscarOCrearCarpeta('IMAGENES PREGUNTAS', procesoId);
+  const imagenesCasosId = await buscarOCrearCarpeta('IMAGENES CASOS', procesoId);
+  const formularioId = await buscarOCrearCarpeta('FORMULARIO', procesoId);
+  return { procesoId, imagenesPreguntasId, imagenesCasosId, formularioId };
+}
+
+async function subirImagenADrive(blob, nombreArchivo, carpetaId) {
+  const metaResp = await llamarGoogle('https://www.googleapis.com/drive/v3/files', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: nombreArchivo, parents: [carpetaId] })
+  });
+  const fileId = metaResp.id;
+  await llamarGoogle('https://www.googleapis.com/upload/drive/v3/files/' + fileId + '?uploadType=media', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'image/png' },
+    body: blob
+  });
+  await llamarGoogle('https://www.googleapis.com/drive/v3/files/' + fileId + '/permissions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ role: 'reader', type: 'anyone' })
+  });
+  return 'https://drive.google.com/uc?export=view&id=' + fileId;
+}
+
+async function moverArchivo(fileId, carpetaDestinoId) {
+  const info = await llamarGoogle('https://www.googleapis.com/drive/v3/files/' + fileId + '?fields=parents');
+  const padresActuales = (info.parents || []).join(',');
+  await llamarGoogle('https://www.googleapis.com/drive/v3/files/' + fileId + '?addParents=' + carpetaDestinoId + (padresActuales ? '&removeParents=' + padresActuales : ''), {
+    method: 'PATCH'
+  });
+}
+
+/* ============================================================
+ * LLAMADAS A GOOGLE SLIDES (generación de imágenes)
+ * ============================================================ */
+
+function idUnico(prefijo) { return prefijo + '_' + Math.random().toString(36).substring(2, 12); }
+
+function construirRequestsPregunta(p, slideId) {
+  const ANCHO = 720, ALTO = 405, MARGEN = 30;
+  const tituloId = idUnico('t');
+  const enunciadoId = idUnico('e');
+  const altId = idUnico('a');
+  const letras = p.letrasUsadas || (p.tipoAlternativas === 'VF' ? ['A', 'B'] : ['A', 'B', 'C', 'D', 'E']);
+  const alternativas = p.alternativasFinal || p.alternativas;
+  let textoAlternativas = letras.map(l => l + ') ' + alternativas[l]).join('\n');
+
+  return [
+    { createSlide: { objectId: slideId, insertionIndex: undefined } },
+    { updatePageProperties: { objectId: slideId, pageProperties: { pageBackgroundFill: { solidFill: { color: { rgbColor: { red: 1, green: 1, blue: 1 } } } } }, fields: 'pageBackgroundFill' } },
+    { createShape: { objectId: tituloId, shapeType: 'TEXT_BOX', elementProperties: { pageObjectId: slideId, size: { width: { magnitude: ANCHO - MARGEN * 2, unit: 'PT' }, height: { magnitude: 34, unit: 'PT' } }, transform: { scaleX: 1, scaleY: 1, translateX: MARGEN, translateY: MARGEN, unit: 'PT' } } } },
+    { insertText: { objectId: tituloId, text: 'PREGUNTA ' + String(p.numero).padStart(2, '0') } },
+    { updateTextStyle: { objectId: tituloId, style: { bold: true, fontSize: { magnitude: 16, unit: 'PT' }, fontFamily: 'Arial' }, textRange: { type: 'ALL' }, fields: 'bold,fontSize,fontFamily' } },
+    { createShape: { objectId: enunciadoId, shapeType: 'TEXT_BOX', elementProperties: { pageObjectId: slideId, size: { width: { magnitude: ANCHO - MARGEN * 2, unit: 'PT' }, height: { magnitude: 110, unit: 'PT' } }, transform: { scaleX: 1, scaleY: 1, translateX: MARGEN, translateY: MARGEN + 40, unit: 'PT' } } } },
+    { insertText: { objectId: enunciadoId, text: p.pregunta } },
+    { updateTextStyle: { objectId: enunciadoId, style: { fontSize: { magnitude: 14, unit: 'PT' }, fontFamily: 'Arial' }, textRange: { type: 'ALL' }, fields: 'fontSize,fontFamily' } },
+    { createShape: { objectId: altId, shapeType: 'TEXT_BOX', elementProperties: { pageObjectId: slideId, size: { width: { magnitude: ANCHO - MARGEN * 2, unit: 'PT' }, height: { magnitude: ALTO - MARGEN - 190, unit: 'PT' } }, transform: { scaleX: 1, scaleY: 1, translateX: MARGEN, translateY: MARGEN + 160, unit: 'PT' } } } },
+    { insertText: { objectId: altId, text: textoAlternativas } },
+    { updateTextStyle: { objectId: altId, style: { fontSize: { magnitude: 13, unit: 'PT' }, fontFamily: 'Arial' }, textRange: { type: 'ALL' }, fields: 'fontSize,fontFamily' } },
+    { updateParagraphStyle: { objectId: altId, style: { lineSpacing: 130, spaceBelow: { magnitude: 6, unit: 'PT' } }, textRange: { type: 'ALL' }, fields: 'lineSpacing,spaceBelow' } }
+  ];
+}
+
+async function generarImagenesPreguntas(preguntas, carpeta, actualizarProgreso) {
+  const creado = await llamarGoogle('https://slides.googleapis.com/v1/presentations', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title: 'TEMP_' + Date.now() })
+  });
+  const presentationId = creado.presentationId;
+
+  const slideIds = preguntas.map(() => idUnico('s'));
+  let requests = [];
+  preguntas.forEach((p, i) => {
+    requests = requests.concat(construirRequestsPregunta(p, slideIds[i]).map(r => {
+      if (r.createSlide) r.createSlide.insertionIndex = i + 1; // +1 porque la diapositiva 0 viene por defecto
+      return r;
+    }));
+  });
+
+  await llamarGoogle('https://slides.googleapis.com/v1/presentations/' + presentationId + ':batchUpdate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ requests })
+  });
+
+  for (let i = 0; i < preguntas.length; i++) {
+    const p = preguntas[i];
+    const thumb = await llamarGoogle('https://slides.googleapis.com/v1/presentations/' + presentationId + '/pages/' + slideIds[i] + '/thumbnail?thumbnailProperties.mimeType=PNG&thumbnailProperties.thumbnailSize=LARGE');
+    const respuestaImg = await fetch(thumb.contentUrl);
+    const blob = await respuestaImg.blob();
+    const carpetaDestino = p.tipo === 'CASO' ? carpeta.imagenesCasosId : carpeta.imagenesPreguntasId;
+    const nombreArchivo = 'P' + String(p.numero).padStart(2, '0') + '_' + p.id + '.png';
+    p.imagenUrl = await subirImagenADrive(blob, nombreArchivo, carpetaDestino);
+    if (actualizarProgreso) actualizarProgreso(i + 1, preguntas.length);
+  }
+
+  await llamarGoogle('https://www.googleapis.com/drive/v3/files/' + presentationId, { method: 'DELETE' });
+}
+
+/* ============================================================
+ * LLAMADAS A GOOGLE FORMS
+ * ============================================================ */
+
+async function crearFormulario(config, preguntas, carpeta) {
+  const creado = await llamarGoogle('https://forms.googleapis.com/v1/forms', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ info: { title: 'EVALUACIÓN ESCRITA - ' + config.nombreProceso } })
+  });
+  const formId = creado.formId;
+
+  const descripcion =
+    'Proceso: ' + config.nombreProceso + '\n' +
+    'Cargo: ' + config.cargo + '\n' +
+    'Duración máxima: ' + config.duracionMinutos + ' minutos\n' +
+    'Puntaje máximo: ' + config.puntajeMaximo + '\n' +
+    'Puntaje mínimo para ser declarado APTO: ' + config.puntajeMinimoApto + '\n\n' +
+    'No está permitido el uso de fuentes externas, celulares u otras personas durante la evaluación. ' +
+    'El uso de cualquier medio para copiar o compartir el contenido de esta evaluación puede dar lugar a la descalificación del postulante.';
+
+  await llamarGoogle('https://forms.googleapis.com/v1/forms/' + formId + ':batchUpdate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      requests: [
+        { updateFormInfo: { info: { description: descripcion }, updateMask: 'description' } },
+        { updateSettings: { settings: { quizSettings: { isQuiz: true } }, updateMask: 'quizSettings.isQuiz' } }
+      ]
+    })
+  });
+
+  const requests = [];
+  let idx = 0;
+  requests.push({ createItem: { item: { title: 'APELLIDOS Y NOMBRES', questionItem: { question: { required: true, textQuestion: {} } } }, location: { index: idx++ } } });
+  requests.push({ createItem: { item: { title: 'DNI', questionItem: { question: { required: true, textQuestion: {} } } }, location: { index: idx++ } } });
+
+  let casoIdAnterior = null;
+  preguntas.forEach(p => {
+    if (p.tipo === 'CASO' && p.casoId !== casoIdAnterior) {
+      requests.push({ createItem: { item: { title: 'CASO PRÁCTICO', pageBreakItem: {} }, location: { index: idx++ } } });
+      casoIdAnterior = p.casoId;
+    }
+    if (p.imagenUrl) {
+      requests.push({ createItem: { item: { title: 'Pregunta ' + p.numero, imageItem: { image: { sourceUri: p.imagenUrl } } }, location: { index: idx++ } } });
+    }
+    const alternativas = p.alternativasFinal || p.alternativas;
+    const letras = p.letrasUsadas || (p.tipoAlternativas === 'VF' ? ['A', 'B'] : ['A', 'B', 'C', 'D', 'E']);
+    const opciones = letras.map(l => l + ') ' + alternativas[l]);
+    const valorCorrecto = (p.respuestaCorrectaFinal || p.letraCorrecta) + ') ' + alternativas[p.respuestaCorrectaFinal || p.letraCorrecta];
+    const tituloItem = p.imagenUrl ? ('Pregunta ' + p.numero + ' - Seleccione una alternativa:') : ('Pregunta ' + p.numero + '. ' + p.pregunta);
+
+    requests.push({
+      createItem: {
+        item: {
+          title: tituloItem,
+          questionItem: {
+            question: {
+              required: true,
+              choiceQuestion: { type: 'RADIO', options: opciones.map(v => ({ value: v })) },
+              grading: { pointValue: p.puntaje, correctAnswers: { answers: [{ value: valorCorrecto }] } }
+            }
+          }
+        },
+        location: { index: idx++ }
+      }
+    });
+  });
+
+  // Forms API valida en orden y limita el tamaño del batch; lo partimos en bloques de 20
+  for (let i = 0; i < requests.length; i += 20) {
+    const bloque = requests.slice(i, i + 20);
+    await llamarGoogle('https://forms.googleapis.com/v1/forms/' + formId + ':batchUpdate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ requests: bloque })
+    });
+  }
+
+  await moverArchivo(formId, carpeta.formularioId);
+
+  const formInfo = await llamarGoogle('https://forms.googleapis.com/v1/forms/' + formId);
+  return {
+    formId,
+    urlForm: formInfo.responderUri,
+    urlEdit: 'https://docs.google.com/forms/d/' + formId + '/edit'
+  };
+}
+
+/* ============================================================
+ * ORQUESTACIÓN
+ * ============================================================ */
+
+function mostrarProgreso(texto, porcentaje) {
+  document.getElementById('contBarra').style.display = 'block';
+  document.getElementById('barraProgreso').style.width = porcentaje + '%';
+  document.getElementById('textoProgreso').innerText = texto;
+}
+
+async function generarExamen() {
+  const mensajeDiv = document.getElementById('mensajeGeneracion');
+  const boton = document.getElementById('btnGenerar');
+
+  const config = {
+    nombreProceso: document.getElementById('nombreProceso').value.trim(),
+    cargo: document.getElementById('cargo').value.trim(),
+    duracionMinutos: Number(document.getElementById('duracionMinutos').value),
+    puntajeMaximo: Number(document.getElementById('puntajeMaximo').value),
+    puntajeMinimoApto: Number(document.getElementById('puntajeMinimoApto').value),
+    generarImagenes: document.getElementById('generarImagenes').checked,
+    aleatorizarAlternativas: document.getElementById('aleatorizarAlternativas').checked,
+    modoSeleccion: modoActual,
+    cantidadGenerales: Number(document.getElementById('cantidadGenerales').value),
+    cantidadEspecificas: Number(document.getElementById('cantidadEspecificas').value),
+    cantidadCasos: Number(document.getElementById('cantidadCasos').value)
+  };
+
+  if (!config.nombreProceso) { mensajeDiv.innerHTML = '<div class="mensaje error">Indica el nombre del proceso.</div>'; return; }
+  if (bancoActual.length === 0) { mensajeDiv.innerHTML = '<div class="mensaje error">Sube primero un Word con el banco de preguntas.</div>'; return; }
+
+  boton.disabled = true;
+  mensajeDiv.innerHTML = '';
+
+  try {
+    mostrarProgreso('Seleccionando preguntas…', 5);
+    let preguntas = seleccionarPreguntas(config);
+    if (preguntas.length === 0) throw new Error('No se seleccionó ninguna pregunta. Revisa las cantidades o tu selección manual.');
+    preguntas = prepararAlternativas(preguntas, config);
+
+    mostrarProgreso('Creando carpetas en Drive…', 10);
+    const carpeta = await crearEstructuraDrive(config.nombreProceso);
+
+    if (config.generarImagenes) {
+      await generarImagenesPreguntas(preguntas, carpeta, (hechas, total) => {
+        mostrarProgreso('Generando imágenes… (' + hechas + '/' + total + ')', 10 + Math.round((hechas / total) * 70));
+      });
+    }
+
+    mostrarProgreso('Creando el formulario…', 85);
+    const resultado = await crearFormulario(config, preguntas, carpeta);
+
+    mostrarProgreso('Listo', 100);
+    mensajeDiv.innerHTML =
+      '<div class="mensaje ok resultado-final">' +
+      '<div class="linea"><b>Examen generado</b> (' + preguntas.length + ' preguntas)</div>' +
+      '<div class="linea">📝 <a href="' + resultado.urlForm + '" target="_blank">Abrir formulario para postulantes</a></div>' +
+      '<div class="linea">✏️ <a href="' + resultado.urlEdit + '" target="_blank">Abrir formulario en modo edición</a></div>' +
+      '</div>';
+  } catch (err) {
+    mensajeDiv.innerHTML = '<div class="mensaje error">' + err.message + '</div>';
+  } finally {
+    boton.disabled = false;
+  }
+}
+</script>
+</body>
+</html>
