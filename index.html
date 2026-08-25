@@ -787,6 +787,17 @@ async function crearFormulario(config, preguntas, carpeta) {
     body: JSON.stringify({ name: 'EVALUACIÓN ESCRITA - ' + config.nombreProceso })
   });
 
+  // Por defecto, Drive crea los archivos de esta organización como "Restringido"
+  // (solo cuentas @defensoria.gob.pe pueden abrirlo). Los postulantes externos no
+  // podrían ni siquiera ver el examen con ese permiso, así que lo abrimos explícitamente
+  // a "cualquiera con el enlace". Esto también hace que Google deje de forzar la
+  // recolección automática de correo institucional que solo aplica a formularios restringidos.
+  await llamarGoogle('https://www.googleapis.com/drive/v3/files/' + formId + '/permissions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ role: 'reader', type: 'anyone' })
+  });
+
   await moverArchivo(formId, carpeta.formularioId);
 
   const formInfo = await llamarGoogle('https://forms.googleapis.com/v1/forms/' + formId);
