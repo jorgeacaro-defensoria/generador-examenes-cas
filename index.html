@@ -305,8 +305,10 @@ async function procesarWord(archivo) {
       if (posicional) {
         return { tipo: 'posicional', cantidadPrimeras: Number(posicional[1]), valorPrimeras: Number(posicional[2]), valorResto: Number(posicional[3]) };
       }
-      // "cada uno vale 1 punto" / "(1 punto cada una)" / genérico "N puntos" en una línea suelta
-      const plano = texto.match(/(\d+(?:\.\d+)?)\s*p(?:un)?tos?/i);
+      // "cada uno vale 1 punto" / "(1 punto cada una)" — SOLO si dice explícitamente "cada",
+      // para no confundir un total de sección (ej. "Conocimientos Generales (10 ptos.)", que
+      // suma 10 preguntas de 1 punto) con un puntaje por pregunta.
+      const plano = texto.match(/cada[^\d]*?(\d+(?:\.\d+)?)\s*p(?:un)?tos?/i) || texto.match(/(\d+(?:\.\d+)?)\s*p(?:un)?tos?\s*cada/i);
       if (plano) return { tipo: 'flat', valor: Number(plano[1]) };
       return null;
     }
