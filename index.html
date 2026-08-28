@@ -230,12 +230,14 @@ async function procesarWord(archivo) {
     const parser = new DOMParser();
     const xml = parser.parseFromString(xmlTexto, 'application/xml');
 
-    const parrafos = Array.from(xml.getElementsByTagName('w:p'));
-    // Acepta "1." o "1.-" seguido de texto, con el puntaje al final (opcional): "(2 puntos)"
-    const REGEX_PREGUNTA = /^(\d+)[.\-]+\s*(.+?)(?:\s*\((\d+(?:\.\d+)?)\s*puntos?\))?\s*$/i;
-    // Acepta "A)" o "A." como marca de alternativa
-    const REGEX_ALTERNATIVA = /^([A-E])[.\)]\s*(.*)$/;
+    const parrafosXml = Array.from(xml.getElementsByTagName('w:p'));
+    // Acepta "1." o "1.-" seguido de texto, con el puntaje al final (opcional): "(2 puntos)" / "(2 ptos)"
+    const REGEX_PREGUNTA = /^(\d+)[.\-]+\s*(.+?)(?:\s*\((\d+(?:\.\d+)?)\s*p(?:un)?tos?\))?\s*$/i;
+    // Acepta "A)" o "A." como marca de alternativa, en mayúscula o minúscula
+    const REGEX_ALTERNATIVA = /^([A-E])[.\)]\s*(.*)$/i;
     const LETRAS_POSIBLES = ['A', 'B', 'C', 'D', 'E'];
+
+    function quitarTildes(s) { return s.normalize('NFD').replace(/[\u0300-\u036f]/g, ''); }
 
     function esLineaDeDatos(t) {
       // Línea corta tipo "Etiqueta: valor" (ej. "Línea de base: 40 %", "Meta anual: 80 %").
@@ -246,22 +248,64 @@ async function procesarWord(archivo) {
       return /^.{2,35}:\s*\S/.test(t);
     }
 
-    let seccionActual = 'GENERAL';
+    // Algunos Word meten varias alternativas dentro de UN MISMO párrafo, separadas por saltos
+    // de línea internos (Shift+Enter, <w:br/>) en vez de párrafos aparte. Por eso "aplanamos"
+    // cada párrafo en una o más "líneas" antes de analizar el contenido, en vez de trabajar
+    // directamente por párrafo.
+    function extraerLineasDeParrafo(p) {
+      const lineas = [];
+      let bufer = '';
+      let destacadoLinea = false;
+      const runs = Array.from(p.getElementsByTagName('w:r'));
+      runs.forEach(run => {
+        const rPr = run.getElementsByTagName('w:rPr')[0];
+        let negrita = false, resaltado = false;
+        if (rPr) {
+          const bTags = rPr.getElementsByTagName('w:b');
+          negrita = bTags.length > 0 && bTags[0].getAttribute('w:val') !== '0' && bTags[0].getAttribute('w:val') !== 'false';
+          const hTags = rPr.getElementsByTagName('w:highlight');
+          resaltado = hTags.length > 0 && hTags[0].getAttribute('w:val') !== 'none';
+        }
+        const destacadoRun = negrita || resaltado;
+        const hijos = Array.from(run.childNodes || []);
+        hijos.forEach(nodo => {
+          const nombre = nodo.nodeName || '';
+          if (nombre === 'w:t') {
+            const texto = nodo.textContent || '';
+            if (texto.trim() !== '' && destacadoRun) destacadoLinea = true;
+            bufer += texto;
+          } else if (nombre === 'w:br' || nombre === 'w:cr') {
+            lineas.push({ texto: bufer.trim(), destacado: destacadoLinea });
+            bufer = '';
+            destacadoLinea = false;
+          }
+        });
+      });
+      lineas.push({ texto: bufer.trim(), destacado: destacadoLinea });
+      return lineas.filter(l => l.texto !== '');
+    }
+
+    const lineas = [];
+    parrafosXml.forEach(p => {
+      const esListaAuto = p.getElementsByTagName('w:numPr').length > 0;
+      extraerLineasDeParrafo(p).forEach(l => lineas.push({ texto: l.texto, esDestacado: l.destacado, esListaAuto }));
+    });
+
+    let seccionActual = null;
     const preguntas = [];
     let preguntaActual = null;
     let contadorCaso = 0;
-    let contadorAutoAlt = 0; // para alternativas de lista automática de Word (sin letra literal)
     let reglaPuntos = { tipo: 'flat', valor: 1 }; // regla de puntaje vigente para la sección actual
     let contadorPreguntaSeccion = 0; // para reglas posicionales tipo "las 5 primeras valen X"
 
     function intentarExtraerReglaPuntos(texto) {
       // "las 5 primeras valen 2 puntos, las otras 5 valen 1 punto" (u órdenes de palabras similares)
-      const posicional = texto.match(/(\d+)\s*primeras?[^\d]*?valen\s*(\d+(?:\.\d+)?)\s*puntos?[^]*?otras?[^]*?valen\s*(\d+(?:\.\d+)?)\s*puntos?/i);
+      const posicional = texto.match(/(\d+)\s*primeras?[^\d]*?valen\s*(\d+(?:\.\d+)?)\s*p(?:un)?tos?[^]*?otras?[^]*?valen\s*(\d+(?:\.\d+)?)\s*p(?:un)?tos?/i);
       if (posicional) {
         return { tipo: 'posicional', cantidadPrimeras: Number(posicional[1]), valorPrimeras: Number(posicional[2]), valorResto: Number(posicional[3]) };
       }
       // "cada uno vale 1 punto" / "(1 punto cada una)" / genérico "N puntos" en una línea suelta
-      const plano = texto.match(/(\d+(?:\.\d+)?)\s*puntos?/i);
+      const plano = texto.match(/(\d+(?:\.\d+)?)\s*p(?:un)?tos?/i);
       if (plano) return { tipo: 'flat', valor: Number(plano[1]) };
       return null;
     }
@@ -274,44 +318,28 @@ async function procesarWord(archivo) {
       return reglaPuntos.valor;
     }
 
-    parrafos.forEach(p => {
-      const esListaAuto = p.getElementsByTagName('w:numPr').length > 0;
-      const runs = Array.from(p.getElementsByTagName('w:r'));
-      let texto = '';
-      let esDestacado = false;
-      runs.forEach(run => {
-        const tNodos = Array.from(run.getElementsByTagName('w:t'));
-        const textoRun = tNodos.map(t => t.textContent).join('');
-        texto += textoRun;
-        if (textoRun.trim() !== '') {
-          const rPr = run.getElementsByTagName('w:rPr')[0];
-          if (rPr) {
-            const negrita = rPr.getElementsByTagName('w:b').length > 0 &&
-              rPr.getElementsByTagName('w:b')[0].getAttribute('w:val') !== '0' &&
-              rPr.getElementsByTagName('w:b')[0].getAttribute('w:val') !== 'false';
-            const resaltado = rPr.getElementsByTagName('w:highlight').length > 0 &&
-              rPr.getElementsByTagName('w:highlight')[0].getAttribute('w:val') !== 'none';
-            if (negrita || resaltado) esDestacado = true;
-          }
-        }
-      });
-      texto = texto.trim();
-      if (!texto) return;
+    function extraerPuntosDeTexto(texto) {
+      const m = texto.match(/\((\d+(?:\.\d+)?)\s*p(?:un)?tos?\)/i);
+      return m ? Number(m[1]) : undefined;
+    }
 
-      const textoMayus = texto.toUpperCase();
-      if (textoMayus.indexOf('CONOCIMIENTOS GENERALES') > -1) {
+    lineas.forEach(({ texto, esDestacado, esListaAuto }) => {
+      if (!texto) return;
+      const textoNorm = quitarTildes(texto).toUpperCase();
+
+      if (textoNorm.indexOf('CONOCIMIENTOS GENERALES') > -1) {
         if (preguntaActual) { preguntas.push(preguntaActual); preguntaActual = null; }
         seccionActual = 'GENERAL'; reglaPuntos = { tipo: 'flat', valor: 1 }; contadorPreguntaSeccion = 0;
         const regla = intentarExtraerReglaPuntos(texto); if (regla) reglaPuntos = regla;
         return;
       }
-      if (textoMayus.indexOf('ESPECIALIDAD') > -1 || textoMayus.indexOf('CONOCIMIENTOS ESPEC') > -1) {
+      if (textoNorm.indexOf('ESPECIALIDAD') > -1 || textoNorm.indexOf('CONOCIMIENTOS ESPEC') > -1 || textoNorm.indexOf('CONOCIMIENTOS TECNIC') > -1) {
         if (preguntaActual) { preguntas.push(preguntaActual); preguntaActual = null; }
         seccionActual = 'ESPECIFICA'; reglaPuntos = { tipo: 'flat', valor: 1 }; contadorPreguntaSeccion = 0;
         const regla = intentarExtraerReglaPuntos(texto); if (regla) reglaPuntos = regla;
         return;
       }
-      if (/CASOS?\s+PR[ÁA]CTIC/i.test(texto)) {
+      if (/CASOS?\s+PRACTIC/i.test(textoNorm)) {
         if (preguntaActual) { preguntas.push(preguntaActual); preguntaActual = null; }
         seccionActual = 'CASO'; reglaPuntos = { tipo: 'flat', valor: 1 }; contadorPreguntaSeccion = 0;
         const regla = intentarExtraerReglaPuntos(texto); if (regla) reglaPuntos = regla;
@@ -325,7 +353,6 @@ async function procesarWord(archivo) {
         if (preguntaActual) preguntas.push(preguntaActual);
         if (seccionActual === 'CASO') contadorCaso++;
         contadorPreguntaSeccion++;
-        contadorAutoAlt = 0;
         preguntaActual = {
           tipo: seccionActual,
           pregunta: matchPregunta[2].trim(),
@@ -339,43 +366,59 @@ async function procesarWord(archivo) {
 
       // Si esta línea es, además, una declaración de puntaje suelta (sin pregunta activa
       // todavía en esta sección), la usamos como regla y no la tratamos como enunciado.
-      if (!preguntaActual && !matchAlternativa && !esListaAuto && /puntos?/i.test(texto)) {
+      if (!preguntaActual && !matchAlternativa && !esListaAuto && /p(?:un)?tos?/i.test(texto)) {
         const regla = intentarExtraerReglaPuntos(texto);
         if (regla) { reglaPuntos = regla; return; }
       }
 
-      if (matchAlternativa && preguntaActual) {
-        const letra = matchAlternativa[1].toUpperCase();
-        preguntaActual.alternativas[letra] = matchAlternativa[2].trim();
-        if (esDestacado) preguntaActual.letraCorrecta = letra;
-      } else if (esListaAuto && preguntaActual && esLineaDeDatos(texto)) {
+      const alternativasActuales = preguntaActual ? Object.keys(preguntaActual.alternativas).length : 0;
+
+      if (esListaAuto && preguntaActual && esLineaDeDatos(texto)) {
         // Línea de datos/contexto del caso (ej. "Línea de base: 40 %"), no una alternativa de
         // respuesta: viene en el mismo formato de lista automática que las alternativas reales,
         // pero es corta, tiene ":" cerca del inicio y no termina en punto como sí lo hacen las
         // alternativas. Se agrega al enunciado en vez de contarse como A), B), etc.
         preguntaActual.pregunta += ' ' + texto;
-      } else if (esListaAuto && (!preguntaActual || contadorAutoAlt >= LETRAS_POSIBLES.length) && seccionActual) {
+      } else if (esListaAuto && preguntaActual && alternativasActuales < LETRAS_POSIBLES.length) {
+        // En listas automáticas de Word, la POSICIÓN manda sobre cualquier letra literal que
+        // aparezca al inicio del texto (ej. una alternativa que diga "a) y b) son correctas"
+        // no debe confundirse con una marca real de alternativa).
+        const letra = LETRAS_POSIBLES[alternativasActuales];
+        preguntaActual.alternativas[letra] = texto;
+        if (esDestacado) preguntaActual.letraCorrecta = letra;
+      } else if (matchAlternativa && preguntaActual) {
+        const letra = matchAlternativa[1].toUpperCase();
+        preguntaActual.alternativas[letra] = matchAlternativa[2].trim();
+        if (esDestacado) preguntaActual.letraCorrecta = letra;
+      } else if (esListaAuto && (!preguntaActual || alternativasActuales >= LETRAS_POSIBLES.length) && seccionActual) {
         // Pregunta sin número visible en el texto (el enunciado mismo forma parte de la lista
         // automática de Word): la tomamos como el inicio de una pregunta nueva "implícita".
         if (preguntaActual) preguntas.push(preguntaActual);
         if (seccionActual === 'CASO') contadorCaso++;
         contadorPreguntaSeccion++;
-        contadorAutoAlt = 0;
         preguntaActual = {
           tipo: seccionActual,
           pregunta: texto,
-          puntaje: calcularPuntajePregunta(undefined),
+          puntaje: calcularPuntajePregunta(extraerPuntosDeTexto(texto)),
           alternativas: {},
           casoId: seccionActual === 'CASO' ? ('CASO' + String(contadorCaso).padStart(2, '0')) : '',
           letraCorrecta: null
         };
-      } else if (esListaAuto && preguntaActual && contadorAutoAlt < LETRAS_POSIBLES.length) {
-        // Alternativa generada por una lista automática de Word (sin "A)" ni "A." literal)
-        const letra = LETRAS_POSIBLES[contadorAutoAlt];
-        contadorAutoAlt++;
-        preguntaActual.alternativas[letra] = texto;
-        if (esDestacado) preguntaActual.letraCorrecta = letra;
-      } else if (preguntaActual && Object.keys(preguntaActual.alternativas).length === 0) {
+      } else if (!preguntaActual && seccionActual) {
+        // Ninguna regla anterior aplicó: no hay pregunta abierta pero estamos dentro de una
+        // sección reconocida. Se toma esta línea como el inicio de una pregunta "implícita"
+        // (cubre casos del tipo "Caso 2: Título (3 ptos)" sin numeración ni lista automática).
+        if (seccionActual === 'CASO') contadorCaso++;
+        contadorPreguntaSeccion++;
+        preguntaActual = {
+          tipo: seccionActual,
+          pregunta: texto,
+          puntaje: calcularPuntajePregunta(extraerPuntosDeTexto(texto)),
+          alternativas: {},
+          casoId: seccionActual === 'CASO' ? ('CASO' + String(contadorCaso).padStart(2, '0')) : '',
+          letraCorrecta: null
+        };
+      } else if (preguntaActual && alternativasActuales === 0) {
         preguntaActual.pregunta += ' ' + texto;
       }
     });
