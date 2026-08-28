@@ -102,7 +102,7 @@
       </div>
       <div class="fila">
         <div><label>Duración (minutos)</label><input type="number" id="duracionMinutos" value="30"></div>
-        <div><label>Puntaje máximo</label><input type="number" id="puntajeMaximo" value="20"></div>
+        <div><label>Puntaje máximo</label><input type="number" id="puntajeMaximo" value="20" oninput="actualizarContador()"></div>
         <div><label>Puntaje mínimo para APTO</label><input type="number" id="puntajeMinimoApto" value="15"></div>
       </div>
       <div class="checkbox-linea">
@@ -132,6 +132,7 @@
         <div class="mensaje info">Marca las preguntas que quieres incluir. Si dejas el puntaje vacío, se usa el que ya tiene en el banco.</div>
         <div class="tabla-preguntas" id="tablaPreguntas"></div>
         <div class="contador-seleccion" id="contadorSeleccion">0 preguntas seleccionadas</div>
+        <div id="contadorPuntaje" class="mensaje" style="margin-top:8px;">Puntaje seleccionado: <b>0</b></div>
       </div>
     </div>
 
@@ -379,6 +380,11 @@ async function procesarWord(archivo) {
         // pero es corta, tiene ":" cerca del inicio y no termina en punto como sí lo hacen las
         // alternativas. Se agrega al enunciado en vez de contarse como A), B), etc.
         preguntaActual.pregunta += ' ' + texto;
+      } else if (esListaAuto && preguntaActual && alternativasActuales >= LETRAS_POSIBLES.length && /^ningun[oa]?\s+de\s+las?\s+anteriores/i.test(texto)) {
+        // Una 6ª línea tipo "Ninguna de las anteriores" después de ya tener 5 alternativas:
+        // se fusiona con la última alternativa en vez de iniciar una pregunta nueva fantasma.
+        const ultimaLetra = LETRAS_POSIBLES[alternativasActuales - 1];
+        preguntaActual.alternativas[ultimaLetra] += ' / ' + texto;
       } else if (esListaAuto && preguntaActual && alternativasActuales < LETRAS_POSIBLES.length) {
         // En listas automáticas de Word, la POSICIÓN manda sobre cualquier letra literal que
         // aparezca al inicio del texto (ej. una alternativa que diga "a) y b) son correctas"
@@ -498,7 +504,7 @@ function dibujarTablaPreguntas() {
       '<input type="checkbox" class="chk-pregunta" data-id="' + p.id + '" onchange="actualizarContador()">' +
       '<span class="badge">' + p.tipo + '</span>' +
       '<span class="texto" title="' + p.pregunta.replace(/"/g, '&quot;') + '">#' + p.id + ' — ' + textoCorto + '</span>' +
-      '<input type="number" class="pts-pregunta" data-id="' + p.id + '" placeholder="' + p.puntaje + '" step="0.5">' +
+      '<input type="number" class="pts-pregunta" data-id="' + p.id + '" placeholder="' + p.puntaje + '" step="0.5" oninput="actualizarContador()">' +
       '</div>';
   });
   cont.innerHTML = html;
@@ -507,8 +513,31 @@ function dibujarTablaPreguntas() {
 
 
 function actualizarContador() {
-  const marcadas = document.querySelectorAll('.chk-pregunta:checked').length;
-  document.getElementById('contadorSeleccion').innerText = marcadas + ' preguntas seleccionadas';
+  const marcados = document.querySelectorAll('.chk-pregunta:checked');
+  document.getElementById('contadorSeleccion').innerText = marcados.length + ' preguntas seleccionadas';
+
+  let total = 0;
+  marcados.forEach(chk => {
+    const id = chk.getAttribute('data-id');
+    const p = bancoActual.find(x => x.id === id);
+    const inputPts = document.querySelector('.pts-pregunta[data-id="' + id + '"]');
+    const texto = inputPts ? inputPts.value.trim() : '';
+    const puntaje = texto !== '' ? Number(texto) : (p ? p.puntaje : 0);
+    total += isNaN(puntaje) ? 0 : puntaje;
+  });
+
+  const objetivo = Number(document.getElementById('puntajeMaximo').value) || 0;
+  const div = document.getElementById('contadorPuntaje');
+  const diferencia = total - objetivo;
+  let clase = 'info', texto = 'Puntaje seleccionado: <b>' + total + '</b>';
+  if (objetivo > 0) {
+    texto += ' de <b>' + objetivo + '</b>';
+    if (diferencia === 0) { clase = 'ok'; texto += ' ✓'; }
+    else if (diferencia > 0) { clase = 'error'; texto += ' (' + diferencia + ' de más)'; }
+    else { clase = 'error'; texto += ' (faltan ' + Math.abs(diferencia) + ')'; }
+  }
+  div.className = 'mensaje ' + clase;
+  div.innerHTML = texto;
 }
 
 function obtenerLetrasParaTipo(tipoAlternativas) {
