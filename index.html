@@ -232,7 +232,7 @@ async function procesarWord(archivo) {
 
     const parrafosXml = Array.from(xml.getElementsByTagName('w:p'));
     // Acepta "1." o "1.-" seguido de texto, con el puntaje al final (opcional): "(2 puntos)" / "(2 ptos)"
-    const REGEX_PREGUNTA = /^(\d+)[.\-]+\s*(.+?)(?:\s*\((\d+(?:\.\d+)?)\s*p(?:un)?tos?\))?\s*$/i;
+    const REGEX_PREGUNTA = /^(\d+)[.\-:]+\s*(.+?)(?:\s*\((\d+(?:\.\d+)?)\s*p(?:un)?tos?\))?\s*$/i;
     // Acepta "A)" o "A." como marca de alternativa, en mayúscula o minúscula
     const REGEX_ALTERNATIVA = /^([A-E])[.\)]\s*(.*)$/i;
     const LETRAS_POSIBLES = ['A', 'B', 'C', 'D', 'E'];
@@ -427,7 +427,7 @@ async function procesarWord(archivo) {
     preguntas.forEach((p, i) => {
       p.id = String(i + 1).padStart(3, '0');
       p.nivel = p.tipo === 'GENERAL' ? 'Básico' : (p.tipo === 'ESPECIFICA' ? 'Intermedio' : 'Experto');
-      p.tipoAlternativas = Object.keys(p.alternativas).length <= 2 ? 'VF' : '5_OPCIONES';
+      p.tipoAlternativas = Object.keys(p.alternativas).length <= 2 ? 'VF' : (Object.keys(p.alternativas).length === 4 ? '4_OPCIONES' : '5_OPCIONES');
     });
 
     if (preguntas.length === 0) {
@@ -511,6 +511,12 @@ function actualizarContador() {
   document.getElementById('contadorSeleccion').innerText = marcadas + ' preguntas seleccionadas';
 }
 
+function obtenerLetrasParaTipo(tipoAlternativas) {
+  if (tipoAlternativas === 'VF') return ['A', 'B'];
+  if (tipoAlternativas === '4_OPCIONES') return ['A', 'B', 'C', 'D'];
+  return ['A', 'B', 'C', 'D', 'E'];
+}
+
 function mezclarArray(arr) {
   const copia = arr.slice();
   for (let i = copia.length - 1; i > 0; i--) {
@@ -563,7 +569,7 @@ function seleccionarPreguntas(config) {
 
 function prepararAlternativas(preguntas, config) {
   return preguntas.map(p => {
-    const letras = p.tipoAlternativas === 'VF' ? ['A', 'B'] : ['A', 'B', 'C', 'D', 'E'];
+    const letras = obtenerLetrasParaTipo(p.tipoAlternativas);
     let alternativasFinal = {};
     letras.forEach(l => { alternativasFinal[l] = p.alternativas[l]; });
     let correctaFinal = p.letraCorrecta;
@@ -694,7 +700,7 @@ function construirRequestsPregunta(p, slideId) {
   const tituloId = idUnico('t');
   const enunciadoId = idUnico('e');
   const altId = idUnico('a');
-  const letras = p.letrasUsadas || (p.tipoAlternativas === 'VF' ? ['A', 'B'] : ['A', 'B', 'C', 'D', 'E']);
+  const letras = p.letrasUsadas || obtenerLetrasParaTipo(p.tipoAlternativas);
   const alternativas = p.alternativasFinal || p.alternativas;
   let textoAlternativas = letras.map(l => l + ') ' + alternativas[l]).join('\n');
 
@@ -853,7 +859,7 @@ async function crearFormulario(config, preguntas, carpeta) {
       requests.push({ createItem: { item: { title: 'Pregunta ' + p.numero, imageItem: { image: { sourceUri: p.imagenUrl } } }, location: { index: idx++ } } });
     }
     const alternativas = p.alternativasFinal || p.alternativas;
-    const letras = p.letrasUsadas || (p.tipoAlternativas === 'VF' ? ['A', 'B'] : ['A', 'B', 'C', 'D', 'E']);
+    const letras = p.letrasUsadas || obtenerLetrasParaTipo(p.tipoAlternativas);
     const opciones = letras.map(l => l + ') ' + alternativas[l]);
     const valorCorrecto = (p.respuestaCorrectaFinal || p.letraCorrecta) + ') ' + alternativas[p.respuestaCorrectaFinal || p.letraCorrecta];
     const tituloItem = p.imagenUrl ? ('Pregunta ' + p.numero + ' - Seleccione una alternativa:') : ('Pregunta ' + p.numero + '. ' + p.pregunta);
