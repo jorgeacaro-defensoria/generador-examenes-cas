@@ -237,6 +237,15 @@ async function procesarWord(archivo) {
     const REGEX_ALTERNATIVA = /^([A-E])[.\)]\s*(.*)$/;
     const LETRAS_POSIBLES = ['A', 'B', 'C', 'D', 'E'];
 
+    function esLineaDeDatos(t) {
+      // Línea corta tipo "Etiqueta: valor" (ej. "Línea de base: 40 %", "Meta anual: 80 %").
+      // Las alternativas de respuesta reales casi siempre son más largas y terminan en punto;
+      // estas líneas de datos son cortas y no terminan en punto.
+      if (t.length > 60) return false;
+      if (/[.?!]$/.test(t)) return false;
+      return /^.{2,35}:\s*\S/.test(t);
+    }
+
     let seccionActual = 'GENERAL';
     const preguntas = [];
     let preguntaActual = null;
@@ -302,7 +311,7 @@ async function procesarWord(archivo) {
         const regla = intentarExtraerReglaPuntos(texto); if (regla) reglaPuntos = regla;
         return;
       }
-      if (textoMayus.indexOf('CASOS PR') > -1) {
+      if (/CASOS?\s+PR[ÁA]CTIC/i.test(texto)) {
         if (preguntaActual) { preguntas.push(preguntaActual); preguntaActual = null; }
         seccionActual = 'CASO'; reglaPuntos = { tipo: 'flat', valor: 1 }; contadorPreguntaSeccion = 0;
         const regla = intentarExtraerReglaPuntos(texto); if (regla) reglaPuntos = regla;
@@ -339,6 +348,12 @@ async function procesarWord(archivo) {
         const letra = matchAlternativa[1].toUpperCase();
         preguntaActual.alternativas[letra] = matchAlternativa[2].trim();
         if (esDestacado) preguntaActual.letraCorrecta = letra;
+      } else if (esListaAuto && preguntaActual && esLineaDeDatos(texto)) {
+        // Línea de datos/contexto del caso (ej. "Línea de base: 40 %"), no una alternativa de
+        // respuesta: viene en el mismo formato de lista automática que las alternativas reales,
+        // pero es corta, tiene ":" cerca del inicio y no termina en punto como sí lo hacen las
+        // alternativas. Se agrega al enunciado en vez de contarse como A), B), etc.
+        preguntaActual.pregunta += ' ' + texto;
       } else if (esListaAuto && (!preguntaActual || contadorAutoAlt >= LETRAS_POSIBLES.length) && seccionActual) {
         // Pregunta sin número visible en el texto (el enunciado mismo forma parte de la lista
         // automática de Word): la tomamos como el inicio de una pregunta nueva "implícita".
