@@ -113,6 +113,11 @@
         <input type="checkbox" id="aleatorizarAlternativas">
         <label for="aleatorizarAlternativas">Mezclar el orden de las alternativas (se hace una sola vez; todos los postulantes reciben el mismo examen)</label>
       </div>
+      <label style="margin-top:14px;">¿Cómo se captura el correo del postulante?</label>
+      <div class="modo-selector">
+        <div class="modo-opcion activo" id="opcionCorreoGoogle" onclick="elegirMetodoCorreo('GOOGLE')">🔐 Con cuenta de Google<br><span style="font-weight:400;font-size:11px;">debe iniciar sesión; el correo queda automático</span></div>
+        <div class="modo-opcion" id="opcionCorreoTexto" onclick="elegirMetodoCorreo('TEXTO')">⌨️ Escribiéndolo él mismo<br><span style="font-weight:400;font-size:11px;">no necesita iniciar sesión</span></div>
+      </div>
     </div>
 
     <div class="tarjeta">
@@ -168,6 +173,7 @@ let accessToken = null;
 let tokenClient = null;
 let bancoActual = [];
 let modoActual = 'ALEATORIA';
+let metodoCorreo = 'GOOGLE';
 
 /* ============================================================
  * AUTENTICACIÓN
@@ -247,6 +253,13 @@ async function procesarWord(archivo) {
       if (t.length > 60) return false;
       if (/[.?!]$/.test(t)) return false;
       return /^.{2,35}:\s*\S/.test(t);
+    }
+
+    function esAfirmacionNumerada(t) {
+      // Línea tipo "I. ..." / "II. ..." / "III. ..." (afirmación de un ítem de verdadero/falso
+      // o de combinación), que no es una alternativa de respuesta aunque venga en el mismo
+      // formato de lista automática que las alternativas reales.
+      return /^[IVX]{1,4}\.\s/.test(t);
     }
 
     // Algunos Word meten varias alternativas dentro de UN MISMO párrafo, separadas por saltos
@@ -376,7 +389,7 @@ async function procesarWord(archivo) {
 
       const alternativasActuales = preguntaActual ? Object.keys(preguntaActual.alternativas).length : 0;
 
-      if (esListaAuto && preguntaActual && esLineaDeDatos(texto)) {
+      if (esListaAuto && preguntaActual && (esLineaDeDatos(texto) || esAfirmacionNumerada(texto))) {
         // Línea de datos/contexto del caso (ej. "Línea de base: 40 %"), no una alternativa de
         // respuesta: viene en el mismo formato de lista automática que las alternativas reales,
         // pero es corta, tiene ":" cerca del inicio y no termina en punto como sí lo hacen las
@@ -426,6 +439,10 @@ async function procesarWord(archivo) {
           casoId: seccionActual === 'CASO' ? ('CASO' + String(contadorCaso).padStart(2, '0')) : '',
           letraCorrecta: null
         };
+      } else if (preguntaActual && alternativasActuales === 0 && /^(\d+(?:\.\d+)?)\s*p(?:un)?tos?$/i.test(texto)) {
+        // Línea que es SOLO el puntaje (ej. "2 puntos" en su propio párrafo, separado del
+        // enunciado): se usa como puntaje de la pregunta en vez de pegarse al enunciado.
+        preguntaActual.puntaje = Number(texto.match(/(\d+(?:\.\d+)?)/)[1]);
       } else if (preguntaActual && alternativasActuales === 0) {
         preguntaActual.pregunta += ' ' + texto;
       }
@@ -489,6 +506,12 @@ function elegirModo(modo) {
   document.getElementById('opcionManual').classList.toggle('activo', modo === 'MANUAL');
   document.getElementById('bloqueAleatoria').classList.toggle('visible', modo === 'ALEATORIA');
   document.getElementById('bloqueManual').classList.toggle('visible', modo === 'MANUAL');
+}
+
+function elegirMetodoCorreo(metodo) {
+  metodoCorreo = metodo;
+  document.getElementById('opcionCorreoGoogle').classList.toggle('activo', metodo === 'GOOGLE');
+  document.getElementById('opcionCorreoTexto').classList.toggle('activo', metodo === 'TEXTO');
 }
 
 function dibujarTablaPreguntas() {
@@ -848,7 +871,7 @@ async function crearFormulario(config, preguntas, carpeta) {
     body: JSON.stringify({
       requests: [
         { updateFormInfo: { info: { description: descripcion }, updateMask: 'description' } },
-        { updateSettings: { settings: { quizSettings: { isQuiz: true }, emailCollectionType: 'VERIFIED' }, updateMask: 'quizSettings.isQuiz,emailCollectionType' } }
+        { updateSettings: { settings: { quizSettings: { isQuiz: true }, emailCollectionType: (config.metodoCorreo === 'TEXTO' ? 'DO_NOT_COLLECT' : 'VERIFIED') }, updateMask: 'quizSettings.isQuiz,emailCollectionType' } }
       ]
     })
   });
@@ -870,6 +893,9 @@ async function crearFormulario(config, preguntas, carpeta) {
 
   requests.push({ createItem: { item: { title: 'APELLIDOS Y NOMBRES', questionItem: { question: { required: true, textQuestion: {} } } }, location: { index: idx++ } } });
   requests.push({ createItem: { item: { title: 'DNI', questionItem: { question: { required: true, textQuestion: {} } } }, location: { index: idx++ } } });
+  if (config.metodoCorreo === 'TEXTO') {
+    requests.push({ createItem: { item: { title: 'CORREO ELECTRÓNICO', questionItem: { question: { required: true, textQuestion: {} } } }, location: { index: idx++ } } });
+  }
 
   const ETIQUETA_SECCION = { GENERAL: 'PREGUNTAS GENERALES', ESPECIFICA: 'PREGUNTAS ESPECÍFICAS', CASO: 'CASOS PRÁCTICOS' };
   let tipoAnterior = null;
@@ -976,6 +1002,7 @@ async function generarExamen() {
     generarImagenes: document.getElementById('generarImagenes').checked,
     aleatorizarAlternativas: document.getElementById('aleatorizarAlternativas').checked,
     modoSeleccion: modoActual,
+    metodoCorreo: metodoCorreo,
     cantidadGenerales: Number(document.getElementById('cantidadGenerales').value),
     cantidadEspecificas: Number(document.getElementById('cantidadEspecificas').value),
     cantidadCasos: Number(document.getElementById('cantidadCasos').value)
