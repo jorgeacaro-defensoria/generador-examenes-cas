@@ -342,20 +342,24 @@ async function procesarWord(archivo) {
     lineas.forEach(({ texto, esDestacado, esListaAuto }) => {
       if (!texto) return;
       const textoNorm = quitarTildes(texto).toUpperCase();
+      // Los encabezados de sección son títulos cortos; una oración larga que solo contenga
+      // de casualidad una de estas palabras (ej. una alternativa que menciona "...por cada
+      // especialidad profesional...") no debe confundirse con un cambio de sección.
+      const pareceEncabezado = texto.length < 80;
 
-      if (textoNorm.indexOf('CONOCIMIENTOS GENERALES') > -1) {
+      if (pareceEncabezado && textoNorm.indexOf('CONOCIMIENTOS GENERALES') > -1) {
         if (preguntaActual) { preguntas.push(preguntaActual); preguntaActual = null; }
         seccionActual = 'GENERAL'; reglaPuntos = { tipo: 'flat', valor: 1 }; contadorPreguntaSeccion = 0;
         const regla = intentarExtraerReglaPuntos(texto); if (regla) reglaPuntos = regla;
         return;
       }
-      if (textoNorm.indexOf('ESPECIALIDAD') > -1 || textoNorm.indexOf('CONOCIMIENTOS ESPEC') > -1 || textoNorm.indexOf('CONOCIMIENTOS TECNIC') > -1) {
+      if (pareceEncabezado && (textoNorm.indexOf('ESPECIALIDAD') > -1 || textoNorm.indexOf('CONOCIMIENTOS ESPEC') > -1 || textoNorm.indexOf('CONOCIMIENTOS TECNIC') > -1)) {
         if (preguntaActual) { preguntas.push(preguntaActual); preguntaActual = null; }
         seccionActual = 'ESPECIFICA'; reglaPuntos = { tipo: 'flat', valor: 1 }; contadorPreguntaSeccion = 0;
         const regla = intentarExtraerReglaPuntos(texto); if (regla) reglaPuntos = regla;
         return;
       }
-      if (/CASOS?\s+PRACTIC/i.test(textoNorm)) {
+      if (pareceEncabezado && /CASOS?\s+PRACTIC/i.test(textoNorm)) {
         if (preguntaActual) { preguntas.push(preguntaActual); preguntaActual = null; }
         seccionActual = 'CASO'; reglaPuntos = { tipo: 'flat', valor: 1 }; contadorPreguntaSeccion = 0;
         const regla = intentarExtraerReglaPuntos(texto); if (regla) reglaPuntos = regla;
