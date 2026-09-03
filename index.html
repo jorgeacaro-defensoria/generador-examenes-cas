@@ -26,6 +26,29 @@
   .boton:hover { background: #1765cc; }
   .boton:disabled { background: #c8c8c8; cursor: not-allowed; }
   .boton.grande { padding: 12px 26px; font-size: 15px; }
+  .boton.secundario { background: #fff; color: #1a73e8; border: 1px solid #1a73e8; }
+  .boton.secundario:hover { background: #f2f7fe; }
+  .boton.chico { padding: 5px 12px; font-size: 12px; }
+  .boton.peligro { background: #fff; color: #c5221f; border: 1px solid #fad2cf; }
+  .boton.peligro:hover { background: #fce8e6; }
+
+  .overlay-editor { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 100; align-items: flex-start; justify-content: center; overflow-y: auto; padding: 30px 14px; }
+  .overlay-editor.visible { display: flex; }
+  .panel-editor { background: #fff; border-radius: 12px; max-width: 760px; width: 100%; padding: 20px 22px 26px; }
+  .panel-editor-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+  .panel-editor-header h2 { font-size: 17px; margin: 0; }
+  .cerrar-editor { cursor: pointer; font-size: 22px; color: #5f6368; background: none; border: none; line-height: 1; }
+  .tarjeta-pregunta-editable { border: 1px solid #dadce0; border-radius: 10px; padding: 14px 16px; margin-top: 14px; }
+  .tarjeta-pregunta-editable.sin-correcta { border-color: #f6c1bc; background: #fff8f7; }
+  .fila-cabecera-pregunta { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 8px; }
+  .fila-cabecera-pregunta .etiqueta-id { font-size: 11px; color: #5f6368; font-weight: 600; }
+  .tarjeta-pregunta-editable textarea { width: 100%; padding: 7px 9px; border: 1px solid #dadce0; border-radius: 6px; font-size: 13px; font-family: inherit; resize: vertical; min-height: 46px; }
+  .fila-alt-editable { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+  .fila-alt-editable input[type=radio] { flex-shrink: 0; }
+  .fila-alt-editable input[type=text] { flex: 1; padding: 6px 8px; border: 1px solid #dadce0; border-radius: 6px; font-size: 12.5px; }
+  .fila-meta-editable { display: flex; gap: 10px; margin-top: 10px; align-items: center; flex-wrap: wrap; }
+  .fila-meta-editable select, .fila-meta-editable input[type=number] { padding: 5px 7px; border: 1px solid #dadce0; border-radius: 6px; font-size: 12.5px; }
+  .aviso-sin-correcta { font-size: 11.5px; color: #c5221f; margin-top: 6px; }
 
   .zona-subida { border: 2px dashed #c2c2c2; border-radius: 10px; padding: 20px; text-align: center; background: #fafbfc; }
   .mensaje { margin-top: 10px; padding: 10px 12px; border-radius: 8px; font-size: 12.5px; line-height: 1.5; }
@@ -92,6 +115,7 @@
       </div>
       <div id="mensajeSubida"></div>
       <div class="estado-banco" id="estadoBanco">Todavía no hay preguntas cargadas.</div>
+      <button class="boton secundario" id="btnVerEditar" style="margin-top:10px;display:none;" onclick="abrirEditorBanco()">✏️ Ver y editar las preguntas</button>
     </div>
 
     <div class="tarjeta">
@@ -150,6 +174,26 @@
     </div>
   </div>
 
+</div>
+
+<div class="overlay-editor" id="overlayEditor">
+  <div class="panel-editor">
+    <div class="panel-editor-header">
+      <h2>Ver y editar preguntas</h2>
+      <button class="cerrar-editor" onclick="cerrarEditorBanco()">×</button>
+    </div>
+    <p style="font-size:12.5px;color:#5f6368;margin:4px 0 0 0;">
+      Revisa el radio (○) marcado en cada pregunta — esa es la alternativa que el sistema detectó como correcta. Corrígelo si está mal, o escribe/edita cualquier campo directamente.
+      Las preguntas con fondo rosado no tienen ninguna alternativa marcada como correcta todavía.
+    </p>
+    <div id="listaPreguntasEditor"></div>
+    <button class="boton secundario" style="margin-top:16px;" onclick="agregarPreguntaNueva()">+ Agregar pregunta nueva</button>
+    <div style="margin-top:18px;display:flex;gap:10px;">
+      <button class="boton" onclick="guardarCambiosEditor()">Guardar cambios</button>
+      <button class="boton secundario" onclick="cerrarEditorBanco()">Cancelar</button>
+    </div>
+    <div id="mensajeEditor"></div>
+  </div>
 </div>
 
 <script>
@@ -490,16 +534,118 @@ async function procesarWord(archivo) {
 
 function actualizarEstadoBanco() {
   const el = document.getElementById('estadoBanco');
+  const btn = document.getElementById('btnVerEditar');
   if (bancoActual.length === 0) {
     el.innerHTML = 'Todavía no hay preguntas cargadas. Sube un Word para empezar.';
+    btn.style.display = 'none';
   } else {
     const generales = bancoActual.filter(p => p.tipo === 'GENERAL').length;
     const especificas = bancoActual.filter(p => p.tipo === 'ESPECIFICA').length;
     const casos = (new Set(bancoActual.filter(p => p.tipo === 'CASO').map(p => p.casoId))).size;
     el.innerHTML = 'Banco actual: <b>' + bancoActual.length + '</b> preguntas (<b>' + generales + '</b> generales, <b>' + especificas + '</b> específicas, <b>' + casos + '</b> casos).';
+    btn.style.display = 'inline-flex';
   }
 }
 
+/* ============================================================
+ * EDITOR DE PREGUNTAS — ver y corregir manualmente el banco
+ * cargado, incluyendo cuál alternativa quedó marcada como correcta.
+ * ============================================================ */
+
+let bancoEnEdicion = [];
+
+function abrirEditorBanco() {
+  bancoEnEdicion = JSON.parse(JSON.stringify(bancoActual));
+  document.getElementById('overlayEditor').classList.add('visible');
+  dibujarEditorBanco();
+}
+
+function cerrarEditorBanco() {
+  document.getElementById('overlayEditor').classList.remove('visible');
+}
+
+function dibujarEditorBanco() {
+  const cont = document.getElementById('listaPreguntasEditor');
+  let html = '';
+  bancoEnEdicion.forEach((p, i) => {
+    const sinCorrecta = !p.letraCorrecta;
+    html += '<div class="tarjeta-pregunta-editable' + (sinCorrecta ? ' sin-correcta' : '') + '">' +
+      '<div class="fila-cabecera-pregunta">' +
+        '<span class="etiqueta-id">#' + p.id + '</span>' +
+        '<button class="boton chico peligro" onclick="eliminarPreguntaEditor(' + i + ')">Eliminar</button>' +
+      '</div>' +
+      '<textarea onchange="bancoEnEdicion[' + i + '].pregunta = this.value">' + (p.pregunta || '').replace(/</g, '&lt;') + '</textarea>' +
+      ['A', 'B', 'C', 'D', 'E'].map(letra =>
+        '<div class="fila-alt-editable">' +
+          '<input type="radio" name="correcta_' + i + '" ' + (p.letraCorrecta === letra ? 'checked' : '') + ' onchange="bancoEnEdicion[' + i + '].letraCorrecta = \'' + letra + '\'">' +
+          '<span style="font-size:12px;color:#5f6368;width:14px;">' + letra + ')</span>' +
+          '<input type="text" value="' + ((p.alternativas && p.alternativas[letra]) || '').replace(/"/g, '&quot;') + '" placeholder="(vacío = sin usar, para preguntas de 2 o 4 alternativas)" oninput="bancoEnEdicion[' + i + '].alternativas = bancoEnEdicion[' + i + '].alternativas || {}; bancoEnEdicion[' + i + '].alternativas[\'' + letra + '\'] = this.value">' +
+        '</div>'
+      ).join('') +
+      (sinCorrecta ? '<div class="aviso-sin-correcta">⚠️ No hay ninguna alternativa marcada como correcta — selecciona el radio de la correcta.</div>' : '') +
+      '<div class="fila-meta-editable">' +
+        '<label style="font-size:12px;">Tipo: <select onchange="bancoEnEdicion[' + i + '].tipo = this.value">' +
+          ['GENERAL', 'ESPECIFICA', 'CASO'].map(t => '<option value="' + t + '"' + (p.tipo === t ? ' selected' : '') + '>' + t + '</option>').join('') +
+        '</select></label>' +
+        '<label style="font-size:12px;">Puntaje: <input type="number" step="0.5" value="' + p.puntaje + '" style="width:60px;" onchange="bancoEnEdicion[' + i + '].puntaje = Number(this.value)"></label>' +
+        (p.tipo === 'CASO' ? '<label style="font-size:12px;">ID del caso: <input type="text" value="' + (p.casoId || '') + '" style="width:90px;" placeholder="CASO01" onchange="bancoEnEdicion[' + i + '].casoId = this.value"></label>' : '') +
+      '</div>' +
+    '</div>';
+  });
+  cont.innerHTML = html || '<p style="color:#888;font-size:13px;">No hay preguntas en el banco.</p>';
+}
+
+function eliminarPreguntaEditor(indice) {
+  bancoEnEdicion.splice(indice, 1);
+  dibujarEditorBanco();
+}
+
+function agregarPreguntaNueva() {
+  const maxId = bancoEnEdicion.reduce((m, p) => Math.max(m, Number(p.id) || 0), 0);
+  bancoEnEdicion.push({
+    id: String(maxId + 1).padStart(3, '0'),
+    tipo: 'GENERAL',
+    pregunta: '',
+    alternativas: { A: '', B: '', C: '', D: '', E: '' },
+    letraCorrecta: null,
+    puntaje: 1,
+    nivel: 'Básico',
+    casoId: '',
+    tipoAlternativas: '5_OPCIONES'
+  });
+  dibujarEditorBanco();
+  const cont = document.getElementById('listaPreguntasEditor');
+  cont.scrollTop = cont.scrollHeight;
+}
+
+function guardarCambiosEditor() {
+  // Recalcula tipoAlternativas según cuántas alternativas quedaron con texto,
+  // igual que hace el lector automático al importar.
+  bancoEnEdicion.forEach(p => {
+    const letrasConTexto = ['A', 'B', 'C', 'D', 'E'].filter(l => p.alternativas && p.alternativas[l] && p.alternativas[l].trim() !== '');
+    p.tipoAlternativas = letrasConTexto.length <= 2 ? 'VF' : (letrasConTexto.length === 4 ? '4_OPCIONES' : '5_OPCIONES');
+  });
+
+  const sinPregunta = bancoEnEdicion.filter(p => !p.pregunta || p.pregunta.trim() === '');
+  const sinCorrectaFinal = bancoEnEdicion.filter(p => !p.letraCorrecta);
+  const mensajeDiv = document.getElementById('mensajeEditor');
+  if (sinPregunta.length > 0) {
+    mensajeDiv.innerHTML = '<div class="mensaje error">Hay ' + sinPregunta.length + ' pregunta(s) sin enunciado — complétalas o elimínalas antes de guardar.</div>';
+    return;
+  }
+
+  bancoActual = bancoEnEdicion;
+  localStorage.setItem('bancoGeneradorCAS', JSON.stringify(bancoActual));
+  actualizarEstadoBanco();
+  dibujarTablaPreguntas();
+  cerrarEditorBanco();
+
+  if (sinCorrectaFinal.length > 0) {
+    document.getElementById('mensajeSubida').innerHTML = '<div class="mensaje error">⚠️ Guardado. Quedan ' + sinCorrectaFinal.length + ' pregunta(s) sin respuesta correcta marcada (' + sinCorrectaFinal.map(p => '#' + p.id).join(', ') + ') — no se van a poder usar en el examen hasta que las corrijas.</div>';
+  } else {
+    document.getElementById('mensajeSubida').innerHTML = '<div class="mensaje ok">Cambios guardados. Todas las preguntas tienen respuesta correcta marcada.</div>';
+  }
+}
 /* ============================================================
  * SELECCIÓN DE PREGUNTAS (UI)
  * ============================================================ */
